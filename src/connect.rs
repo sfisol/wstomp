@@ -1,5 +1,5 @@
 use actix_http::Uri;
-use async_stomp::client::Connector;
+use async_stomp::{Message, ToServer, client::Connector};
 use awc::{
     Client,
     error::{HttpError, WsClientError},
@@ -7,15 +7,15 @@ use awc::{
 };
 use tokio::sync::mpsc::error::SendError;
 
-use crate::{Message, ToServer, WstompClient};
+use crate::WStompClient;
 
 #[derive(Debug)]
-pub enum WstompConnectError {
+pub enum WStompConnectError {
     WsClientError(WsClientError),
     ConnectMessageFailed(SendError<Message<ToServer>>),
 }
 
-pub async fn connect<U>(url: U) -> Result<WstompClient, WstompConnectError>
+pub async fn connect<U>(url: U) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
@@ -26,7 +26,7 @@ where
 pub async fn connect_with_token<U>(
     url: U,
     auth_token: impl Into<String>,
-) -> Result<WstompClient, WstompConnectError>
+) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
@@ -45,7 +45,7 @@ pub async fn connect_with_pass<U>(
     url: U,
     login: String,
     passcode: String,
-) -> Result<WstompClient, WstompConnectError>
+) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
@@ -59,14 +59,14 @@ pub async fn connect_with_options<U>(
     headers: Vec<(String, String)>,
     login: Option<String>,
     passcode: Option<String>,
-) -> Result<WstompClient, WstompConnectError>
+) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
 {
     let uri = Uri::try_from(url).map_err(|e| {
         let err: HttpError = e.into();
-        WstompConnectError::WsClientError(WsClientError::from(err))
+        WStompConnectError::WsClientError(WsClientError::from(err))
     })?;
 
     let (authority, host_name) = uri
@@ -96,7 +96,7 @@ where
         .send(connect_msg)
         .await
         .inspect_err(|err| println!("CONNECT error: {err}"))
-        .map_err(WstompConnectError::ConnectMessageFailed)?;
+        .map_err(WStompConnectError::ConnectMessageFailed)?;
 
     Ok(stomp_client)
 }
@@ -105,17 +105,17 @@ pub trait StompConnect {
     /// Complete request construction and connect to a WebSocket server, returning a StompClient.
     ///
     /// Does not send CONNECT message to STOMP server.
-    fn stomp_connect(self) -> impl Future<Output = Result<WstompClient, WstompConnectError>>;
+    fn stomp_connect(self) -> impl Future<Output = Result<WStompClient, WStompConnectError>>;
 }
 
 impl StompConnect for WebsocketsRequest {
-    async fn stomp_connect(self) -> Result<WstompClient, WstompConnectError> {
+    async fn stomp_connect(self) -> Result<WStompClient, WStompConnectError> {
         let (_response, framed_connection) = self
             .connect()
             .await
-            .map_err(WstompConnectError::WsClientError)?;
+            .map_err(WStompConnectError::WsClientError)?;
 
-        Ok(WstompClient::new(framed_connection))
+        Ok(WStompClient::new(framed_connection))
     }
 }
 

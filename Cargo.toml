@@ -2,6 +2,19 @@
 name = "wstomp"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Michał Pokrywka <wolfmoon@o2.pl>"]
+readme = "README.md"
+keywords = ["stomp", "websocket", "client", "actix", "async", "web"]
+homepage = "https://github.com/sfisol/wstomp"
+repository = "https://github.com/sfisol/wstomp"
+documentation = "https://docs.rs/wstomp"
+categories = [
+    "network-programming",
+    "asynchronous",
+    "web-programming::http-client",
+    "web-programming::websocket",
+]
 
 [features]
 default = ["rustls"]
@@ -16,6 +29,7 @@ async-stomp = "0.6"
 awc = "3"
 bytes = "1"
 futures-util = "0.3"
+pretty-readme = "0.1"
 tokio = { version = "1", features = ["macros"] }
 tokio-util = "0.7"
 

@@ -3,9 +3,9 @@ use awc::{Client, error::HttpError};
 use std::sync::Arc;
 use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 
-use crate::{WstompClient, WstompConnectError, connect::headers_for_token, connect_with_options};
+use crate::{WStompClient, WStompConnectError, connect::headers_for_token, connect_with_options};
 
-pub async fn connect_ssl<U>(url: U) -> Result<WstompClient, WstompConnectError>
+pub async fn connect_ssl<U>(url: U) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
@@ -16,7 +16,7 @@ where
 pub async fn connect_ssl_with_token<U>(
     url: U,
     auth_token: impl Into<String>,
-) -> Result<WstompClient, WstompConnectError>
+) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
@@ -35,7 +35,7 @@ pub async fn connect_ssl_with_pass<U>(
     url: U,
     login: String,
     passcode: String,
-) -> Result<WstompClient, WstompConnectError>
+) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,

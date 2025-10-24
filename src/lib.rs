@@ -1,9 +1,11 @@
+#![doc = pretty_readme::docify!("README.md", "https://docs.rs/wstomp/latest/wstomp/", "./")]
+
 mod client;
-pub use client::{WstompClient, WstompError};
+pub use client::{WStompClient, WStompError};
 
 mod connect;
 pub use connect::{
-    StompConnect, WstompConnectError, connect, connect_with_options, connect_with_pass,
+    StompConnect, WStompConnectError, connect, connect_with_options, connect_with_pass,
     connect_with_token,
 };
 
@@ -11,5 +13,7 @@ pub use connect::{
 mod connect_ssl;
 pub use connect_ssl::{connect_ssl, connect_ssl_with_pass, connect_ssl_with_token};
 
-// # Re-export usual stomp structs
-pub use async_stomp::{FromServer, Message, ToServer};
+// # Re-export stomp structs
+pub mod stomp {
+    pub use async_stomp::*;
+}

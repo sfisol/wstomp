@@ -13,18 +13,28 @@ use tokio_util::codec::{Decoder, Encoder};
 
 /// Custom error type to combine WebSocket and STOMP errors.
 #[derive(Debug)]
-pub enum WstompError {
+pub enum WStompError {
+    /// Error during receiving websocket frames (from awc)
     WsReceive(WsProtocolError),
-    Stomp(anyhow::Error),
-    IncompleteStompFrame,
+    /// Error during sending websocket frames (from awc)
     WsSend(WsProtocolError),
+    /// Error while decoding (receiving) STOMP message (from async-stomp)
+    StompDecoding(anyhow::Error),
+    /// Error while encoding (sending) STOMP message (from async-stomp)
+    StompEncoding(anyhow::Error),
+    /// Incomplete STOMP frame received through WebSocket
+    ///
+    /// This is a warning that WebSocket protocol finished receiving data, but STOMP protocol
+    /// doesn't recognize it as a full STOMP message. Should not happen, can be ignored in most cases.
+    IncompleteStompFrame,
 }
 
-impl std::fmt::Display for WstompError {
+impl std::fmt::Display for WStompError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WsReceive(e) => write!(f, "WebSocket receive error: {}", e),
-            Self::Stomp(e) => write!(f, "STOMP decoding error: {}", e),
+            Self::StompDecoding(e) => write!(f, "STOMP decoding error: {}", e),
+            Self::StompEncoding(e) => write!(f, "STOMP encoding error: {}", e),
             Self::IncompleteStompFrame => {
                 write!(f, "STOMP decoding warning: Dropped incomplete frame")
             }
@@ -32,30 +42,30 @@ impl std::fmt::Display for WstompError {
         }
     }
 }
-impl std::error::Error for WstompError {}
+impl std::error::Error for WStompError {}
 
 type WsFramed = Framed<BoxedSocket, Codec>;
 
 /// Your client which reads websocket and produces STOMP messages. Also takes STOMP messages from you and sends it through websocket
-pub struct WstompClient {
+pub struct WStompClient {
     /// Send STOMP frames to the server with this.
     pub tx: Sender<Message<ToServer>>,
     /// Receive STOMP frames from the server with this.
-    pub rx: Receiver<Result<Message<FromServer>, WstompError>>,
+    pub rx: Receiver<Result<Message<FromServer>, WStompError>>,
 }
 
-impl WstompClient {
+impl WStompClient {
     /// Creates a new STOMP client based on a websocket connection made by awc client.
     ///
-    /// Pass the `Framed` object you get from `awc` directly into this constructor.
-    /// This will create a background worker in actix system, which will encode and decode STOMP messages for you.
+    /// You can use this struct directly by passing the `Framed` object you get from `awc` into this constructor.
+    /// This will create a background worker in actix system (on current thread), which will encode and decode STOMP messages for you.
     /// It also manages websocket ping-pong heartbeat.
     pub fn new(ws_framed: Framed<BoxedSocket, Codec>) -> Self {
         // Channel for you to send STOMP frames to the handler task
         let (app_tx, app_rx) = mpsc::channel::<Message<ToServer>>(100);
 
         // Channel for the handler task to send STOMP frames back to you
-        let (stomp_tx, stomp_rx) = mpsc::channel::<Result<Message<FromServer>, WstompError>>(100);
+        let (stomp_tx, stomp_rx) = mpsc::channel::<Result<Message<FromServer>, WStompError>>(100);
 
         // Spawn the task that handles all the low-level logic.
         actix_rt::spawn(stomp_handler_task(ws_framed, app_rx, stomp_tx));
@@ -66,11 +76,11 @@ impl WstompClient {
         }
     }
 
-    pub async fn recv<T>(&mut self) -> Option<Result<Message<FromServer>, WstompError>> {
+    pub async fn recv(&mut self) -> Option<Result<Message<FromServer>, WStompError>> {
         self.rx.recv().await
     }
 
-    pub async fn send<T>(
+    pub async fn send(
         &mut self,
         value: Message<ToServer>,
     ) -> Result<(), SendError<Message<ToServer>>> {
@@ -86,7 +96,7 @@ impl WstompClient {
 async fn stomp_handler_task(
     ws_framed: WsFramed,
     mut app_rx: Receiver<Message<ToServer>>,
-    stomp_tx: Sender<Result<Message<FromServer>, WstompError>>,
+    stomp_tx: Sender<Result<Message<FromServer>, WStompError>>,
 ) {
     let (mut ws_sink, mut ws_stream) = ws_framed.split();
     let mut stomp_codec = ClientCodec;
@@ -103,7 +113,7 @@ async fn stomp_handler_task(
                 match ws_frame {
                     WsFrame::Ping(bytes) => {
                         if let Err(e) = ws_sink.send(WsMessage::Pong(bytes)).await {
-                            let _ = stomp_tx.send(Err(WstompError::WsSend(e))).await;
+                            let _ = stomp_tx.send(Err(WStompError::WsSend(e))).await;
                             break;
                         }
                     }
@@ -154,12 +164,12 @@ async fn stomp_handler_task(
                         }
                         Ok(None) => {
                             // Not enough data for a full STOMP frame, wait for more.
-                            let _ = stomp_tx.send(Err(WstompError::IncompleteStompFrame)).await;
+                            let _ = stomp_tx.send(Err(WStompError::IncompleteStompFrame)).await;
                             break;
                         }
                         Err(e) => {
                             // STOMP decoding error
-                            let _ = stomp_tx.send(Err(WstompError::Stomp(e))).await;
+                            let _ = stomp_tx.send(Err(WStompError::StompDecoding(e))).await;
                             break;
                         }
                     }
@@ -174,14 +184,14 @@ async fn stomp_handler_task(
                     Ok(_) => {
                         // Send it as a WebSocket Binary message
                         if let Err(e) = ws_sink.send(WsMessage::Binary(encode_buf.clone().freeze())).await {
-                            let _ = stomp_tx.send(Err(WstompError::WsReceive(e))).await;
+                            let _ = stomp_tx.send(Err(WStompError::WsReceive(e))).await;
                             break;
                         }
                         encode_buf.clear();
                     }
                     Err(e) => {
                         // STOMP encoding error
-                        let _ = stomp_tx.send(Err(WstompError::Stomp(e))).await;
+                        let _ = stomp_tx.send(Err(WStompError::StompEncoding(e))).await;
                     }
                 }
             }

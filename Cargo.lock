@@ -981,6 +981,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pretty-readme"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "241f6a37335987e17e6030deb400ef373cc028bbdc5722c5ee8b807c33d7568f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1832,6 +1844,7 @@ dependencies = [
  "awc",
  "bytes",
  "futures-util",
+ "pretty-readme",
  "tokio",
  "tokio-rustls 0.23.4",
  "tokio-util",
