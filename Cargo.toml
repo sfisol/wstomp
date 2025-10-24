@@ -1,0 +1,24 @@
+[package]
+name = "wstomp"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["rustls"]
+rustls = ["tokio-rustls", "webpki-roots", "awc/rustls"]
+
+[dependencies]
+actix-codec = "0.5"
+actix-rt = "2"
+actix-http = "3"
+anyhow = "1"
+async-stomp = "0.6"
+awc = "3"
+bytes = "1"
+futures-util = "0.3"
+tokio = { version = "1", features = ["macros"] }
+tokio-util = "0.7"
+
+# rustls
+webpki-roots = { version = "1", optional = true }
+tokio-rustls = { version = "0.23", optional = true }
