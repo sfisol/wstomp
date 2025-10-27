@@ -1,19 +1,12 @@
 use actix_http::Uri;
-use async_stomp::{Message, ToServer, client::Connector};
+use async_stomp::client::Connector;
 use awc::{
     Client,
     error::{HttpError, WsClientError},
     ws::WebsocketsRequest,
 };
-use tokio::sync::mpsc::error::SendError;
 
-use crate::WStompClient;
-
-#[derive(Debug)]
-pub enum WStompConnectError {
-    WsClientError(WsClientError),
-    ConnectMessageFailed(SendError<Message<ToServer>>),
-}
+use crate::{WStompClient, WStompConnectError};
 
 pub async fn connect<U>(url: U) -> Result<WStompClient, WStompConnectError>
 where
@@ -92,7 +85,6 @@ where
     };
 
     stomp_client
-        .tx
         .send(connect_msg)
         .await
         .inspect_err(|err| println!("CONNECT error: {err}"))
