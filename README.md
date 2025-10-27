@@ -6,15 +6,15 @@ This crate provides a simple client to connect to a STOMP-enabled WebSocket serv
 
 ## Features
 
-  * Connects to STOMP servers over WebSocket using [`awc`](https://crates.io/crates/awc).
-  * Handles all STOMP protocol encoding and decoding via [`async-stomp`](https://crates.io/crates/async-stomp).
-  * Manages WebSocket ping/pong heartbeats automatically in a background task.
-  * Provides a simple `tokio::mpsc` channel-based API (`WStompClient`) for sending and receiving STOMP frames.
-  * Connection helpers for various authentication methods:
-      * `connect`: Anonymous connection.
-      * `connect_with_pass`: Login and passcode authentication.
-      * `connect_with_token`: Authentication using an authorization token header.
-  * Optional `rustls` feature for SSL connections, with helpers that force HTTP/1.1 for compatibility with servers like SockJS.
+* Connects to STOMP servers over WebSocket using [`awc`](https://crates.io/crates/awc).
+* Handles all STOMP protocol encoding and decoding via [`async-stomp`](https://crates.io/crates/async-stomp).
+* Manages WebSocket ping/pong heartbeats automatically in a background task.
+* Provides a simple `tokio::mpsc` channel-based API (`WStompClient`) for sending and receiving STOMP frames.
+* Connection helpers for various authentication methods:
+  * `connect`: Anonymous connection.
+  * `connect_with_pass`: Login and passcode authentication.
+  * `connect_with_token`: Authentication using an authorization token header.
+* Optional `rustls` feature for SSL connections, with helpers that force HTTP/1.1 for compatibility with servers like SockJS.
 
 ## Installation
 
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .subscribe();
 
     // 3. Send the SUBSCRIBE frame
-    client.tx.send(subscribe_frame).await?;
+    client.send(subscribe_frame).await?;
 
     println!("Subscribed! Waiting for messages...");
 
@@ -183,12 +183,11 @@ The connection functions (`connect`, `connect_ssl`, etc.) return a `Result<WStom
 
 Once connected, the `WStompClient::rx` channel produces `Result<Message<FromServer>, WStompError>` items. You should check for errors in your receive loop.
 
-  * **`WStompConnectError`**: An error that occurs during the initial WebSocket and STOMP `CONNECT` handshake.
-  * **`WStompError`**: An error that occurs *after* a successful connection.
-      * `WsReceive` / `WsSend`: A WebSocket protocol error.
-      * `StompDecoding`: A STOMP frame decoding error.
-      * `StompEncoding`: A STOMP frame encoding error.
-      * `IncompleteStompFrame`: A warning indicating that data was received but was not enough to form a complete STOMP frame. The client has dropped this data. This is often safe to ignore or log as a warning.
+* **`WStompConnectError`**: An error that occurs during the initial WebSocket and STOMP `CONNECT` handshake.
+* **`WStompError`**: An error that occurs *after* a successful connection.
+  * `WsReceive` / `WsSend`: A WebSocket protocol error.
+  * `StompDecoding` / `StompEncoding`: A STOMP frame decoding/encoding error.
+  * `IncompleteStompFrame`: A warning indicating that data was received but was not enough to form a complete STOMP frame. The client has dropped this data. This is often safe to ignore or log as a warning.
 
 ## License
 
