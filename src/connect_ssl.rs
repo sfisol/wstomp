@@ -3,16 +3,18 @@ use awc::{Client, error::HttpError};
 use std::sync::Arc;
 use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 
-use crate::{WStompClient, WStompConnectError, connect::headers_for_token, connect_with_options};
+use crate::{WStompClient, WStompConfig, WStompConnectError};
 
+/// Connect to STOMP server through SSL
 pub async fn connect_ssl<U>(url: U) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
 {
-    connect_with_options(create_ssl_client(), url, vec![], None, None).await
+    WStompConfig::new(url).ssl().build_and_connect().await
 }
 
+/// Connect to STOMP server through SSL using authorization token
 pub async fn connect_ssl_with_token<U>(
     url: U,
     auth_token: impl Into<String>,
@@ -21,16 +23,14 @@ where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
 {
-    connect_with_options(
-        create_ssl_client(),
-        url,
-        headers_for_token(auth_token),
-        None,
-        None,
-    )
-    .await
+    WStompConfig::new(url)
+        .ssl()
+        .auth_token(auth_token)
+        .build_and_connect()
+        .await
 }
 
+/// Connect to STOMP server through SSL using password
 pub async fn connect_ssl_with_pass<U>(
     url: U,
     login: String,
@@ -40,18 +40,16 @@ where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
 {
-    connect_with_options(
-        create_ssl_client(),
-        url,
-        vec![],
-        Some(login),
-        Some(passcode),
-    )
-    .await
+    WStompConfig::new(url)
+        .ssl()
+        .login(login)
+        .passcode(passcode)
+        .build_and_connect()
+        .await
 }
 
 // This creates ssl client which forces usage of http/1.1 for compatibility with various SockJS servers
-fn create_ssl_client() -> Client {
+pub(crate) fn create_ssl_client() -> Client {
     // 1. Create a root certificate store
 
     // Switch to this after updating rustls
