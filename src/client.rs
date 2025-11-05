@@ -1,13 +1,13 @@
 use actix_codec::Framed;
 use actix_http::Uri;
-use async_stomp::{FromServer, Message, ToServer};
+use async_stomp::{Message, ToServer};
 use awc::{BoxedSocket, error::HttpError, ws::Codec};
 use tokio::sync::mpsc::{self, Receiver, Sender, error::SendError};
 
-use crate::{WStompConfig, WStompError, stomp_handler::stomp_handler_task};
+use crate::{WStompConfig, stomp_handler::stomp_handler_task, wstomp_event::WStompEvent};
 
 pub type WStompSender = Sender<Message<ToServer>>;
-pub type WStompReceiver = Receiver<Result<Message<FromServer>, WStompError>>;
+pub type WStompReceiver = Receiver<WStompEvent>;
 
 /// Your client which reads websocket and produces STOMP messages. Also takes STOMP messages from you and sends it through websocket
 pub struct WStompClient {
@@ -36,7 +36,7 @@ impl WStompClient {
         let (app_tx, app_rx) = mpsc::channel::<Message<ToServer>>(100);
 
         // Channel for the handler task to send STOMP frames back to you
-        let (stomp_tx, stomp_rx) = mpsc::channel::<Result<Message<FromServer>, WStompError>>(100);
+        let (stomp_tx, stomp_rx) = mpsc::channel::<WStompEvent>(100);
 
         // Spawn the task that handles all the low-level logic.
         actix_rt::spawn(stomp_handler_task(ws_framed, app_rx, stomp_tx));
@@ -47,7 +47,7 @@ impl WStompClient {
         }
     }
 
-    pub async fn recv(&mut self) -> Option<Result<Message<FromServer>, WStompError>> {
+    pub async fn recv(&mut self) -> Option<WStompEvent> {
         self.rx.recv().await
     }
 

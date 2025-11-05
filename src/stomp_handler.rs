@@ -1,6 +1,6 @@
 use actix_codec::Framed;
 use actix_http::ws::{Codec, Frame as WsFrame, Item as WsItem, Message as WsMessage};
-use async_stomp::{FromServer, Message, ToServer, client::ClientCodec};
+use async_stomp::{Message, ToServer, client::ClientCodec};
 use awc::BoxedSocket;
 use bytes::{Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
@@ -11,7 +11,7 @@ use tokio::{
 };
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::WStompError;
+use crate::{WStompError, wstomp_event::WStompEvent};
 
 /// This is the internal task that manages the connection.
 /// It multiplexes between:
@@ -21,7 +21,7 @@ use crate::WStompError;
 pub(crate) async fn stomp_handler_task(
     ws_framed: Framed<BoxedSocket, Codec>,
     mut app_rx: Receiver<Message<ToServer>>,
-    stomp_tx: Sender<Result<Message<FromServer>, WStompError>>,
+    stomp_tx: Sender<WStompEvent>,
 ) {
     let (mut ws_sink, mut ws_stream) = ws_framed.split();
     let mut stomp_codec = ClientCodec;
@@ -38,7 +38,7 @@ pub(crate) async fn stomp_handler_task(
                 match ws_frame {
                     WsFrame::Ping(bytes) => {
                         if let Err(e) = ws_sink.send(WsMessage::Pong(bytes)).await {
-                            let _ = stomp_tx.send(Err(WStompError::WsSend(e))).await;
+                            let _ = stomp_tx.send(WStompError::WsSend(e).into()).await;
                             break;
                         }
                     }
@@ -51,7 +51,7 @@ pub(crate) async fn stomp_handler_task(
                         finished_reading = true;
                     }
                     WsFrame::Close(reason) => {
-                        println!("Server closed WebSocket: {:?}", reason);
+                        let _ = stomp_tx.send(WStompEvent::WebsocketClosed(reason)).await;
                         break;
                     }
                     WsFrame::Pong(_) => {}
@@ -82,19 +82,19 @@ pub(crate) async fn stomp_handler_task(
                         Ok(Some(stomp_frame)) => {
                             read_buf.clear();
                             // Decoded a STOMP frame, send it to the app
-                            if stomp_tx.send(Ok(stomp_frame)).await.is_err() {
+                            if stomp_tx.send(WStompEvent::Message(stomp_frame)).await.is_err() {
                                 // Receiver was dropped, app is gone.
                                 break;
                             }
                         }
                         Ok(None) => {
                             // Not enough data for a full STOMP frame, wait for more.
-                            let _ = stomp_tx.send(Err(WStompError::IncompleteStompFrame)).await;
+                            let _ = stomp_tx.send(WStompError::IncompleteStompFrame.into()).await;
                             break;
                         }
                         Err(e) => {
                             // STOMP decoding error
-                            let _ = stomp_tx.send(Err(WStompError::StompDecoding(e))).await;
+                            let _ = stomp_tx.send(WStompError::StompDecoding(e).into()).await;
                             break;
                         }
                     }
@@ -108,14 +108,14 @@ pub(crate) async fn stomp_handler_task(
                     Ok(_) => {
                         // Send it as a WebSocket Binary message
                         if let Err(e) = ws_sink.send(WsMessage::Binary(encode_buf.clone().freeze())).await {
-                            let _ = stomp_tx.send(Err(WStompError::WsReceive(e))).await;
+                            let _ = stomp_tx.send(WStompError::WsReceive(e).into()).await;
                             break;
                         }
                         encode_buf.clear();
                     }
                     Err(e) => {
                         // STOMP encoding error
-                        let _ = stomp_tx.send(Err(WStompError::StompEncoding(e))).await;
+                        let _ = stomp_tx.send(WStompError::StompEncoding(e).into()).await;
                     }
                 }
             }
@@ -125,10 +125,7 @@ pub(crate) async fn stomp_handler_task(
             }
 
             // 3. Both streams closed, exit loop
-            else => {
-                println!("STOMP client task shutting down.");
-                break;
-            }
+            else => break,
         }
     }
 }

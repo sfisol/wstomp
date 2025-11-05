@@ -15,8 +15,8 @@ mod stomp_handler;
 mod connect_ssl;
 pub use connect_ssl::{connect_ssl, connect_ssl_with_pass, connect_ssl_with_token};
 
-pub mod error;
-pub use error::{WStompConnectError, WStompError};
+pub mod wstomp_event;
+pub use wstomp_event::{WStompConnectError, WStompError, WStompEvent};
 
 // # Re-export stomp structs
 pub mod stomp {
