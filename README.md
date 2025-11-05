@@ -43,7 +43,7 @@ Here is a basic example of connecting, subscribing to a topic, and receiving mes
 use wstomp::{
     connect_with_pass,
     stomp::{FromServer, Message, ToServer, client::Subscriber},
-    WStompError,
+    WStompEvent, WStompError,
 };
 
 #[actix_rt::main]
@@ -72,10 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Subscribed! Waiting for messages...");
 
     // 4. Listen for incoming messages
-    loop {
-        match client.recv().await {
+    while let Some(event) = client.recv().await {
+        match event {
             // Receive messages from the server
-            Some(Ok(msg)) => {
+            WStompEvent::Message(msg) => {
                 match msg.content {
                     FromServer::Message {
                         destination,
@@ -109,9 +109,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     other => println!("Received other frame: {:?}", other),
                 }
             }
+            WStompEvent::WebsocketClosed(reason) => break,
             // Handle errors
-            Some(Err(e)) => {
-                 match e {
+            WStompEvent::Error(err) => {
+                match err {
                     WStompError::IncompleteStompFrame => {
                         // This is a warning, you can choose to ignore it or log it
                         eprintln!("Warning: Dropped incomplete STOMP frame.");
@@ -123,8 +124,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            // Exit loop if channel closes
-            None => break,
         }
     }
 
@@ -181,9 +180,10 @@ async fn main() {
 
 The connection functions (`connect`, `connect_ssl`, etc.) return a `Result<WStompClient, WStompConnectError>`.
 
-Once connected, the `WStompClient::rx` channel produces `Result<Message<FromServer>, WStompError>` items. You should check for errors in your receive loop.
+Once connected, the `WStompClient::rx` channel produces `WStompEvent` items, it may be a message, websocket closing, or `WStompError`.
 
 * **`WStompConnectError`**: An error that occurs during the initial WebSocket and STOMP `CONNECT` handshake.
+
 * **`WStompError`**: An error that occurs *after* a successful connection.
   * `WsReceive` / `WsSend`: A WebSocket protocol error.
   * `StompDecoding` / `StompEncoding`: A STOMP frame decoding/encoding error.

@@ -1,11 +1,31 @@
-use async_stomp::{Message, ToServer};
-use awc::error::{WsClientError, WsProtocolError};
+use async_stomp::{FromServer, Message, ToServer};
+use awc::{
+    error::{WsClientError, WsProtocolError},
+    ws::CloseReason,
+};
 use tokio::sync::mpsc::error::SendError;
 
 #[derive(Debug)]
 pub enum WStompConnectError {
     WsClientError(WsClientError),
     ConnectMessageFailed(SendError<Message<ToServer>>),
+}
+
+/// Custom enum combine events in WebSocket and STOMP
+#[derive(Debug)]
+pub enum WStompEvent {
+    /// Regular message from STOMP protocol
+    Message(Message<FromServer>),
+    /// Websocket closed connection (with reason)
+    WebsocketClosed(Option<CloseReason>),
+    /// WebSocket or STOMP error combined
+    Error(WStompError),
+}
+
+impl From<WStompError> for WStompEvent {
+    fn from(err: WStompError) -> Self {
+        Self::Error(err)
+    }
 }
 
 /// Custom error type to combine WebSocket and STOMP errors.

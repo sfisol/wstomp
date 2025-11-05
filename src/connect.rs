@@ -123,7 +123,6 @@ impl<U> WStompConfig<U> {
         stomp_client
             .send(connect_msg)
             .await
-            .inspect_err(|err| println!("CONNECT error: {err}"))
             .map_err(WStompConnectError::ConnectMessageFailed)?;
 
         Ok(stomp_client)
