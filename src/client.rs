@@ -31,6 +31,8 @@ impl WStompClient {
     /// You can use this struct directly by passing the `Framed` object you get from `awc` into this constructor.
     /// This will create a background worker in actix system (on current thread), which will encode and decode STOMP messages for you.
     /// It also manages websocket ping-pong heartbeat.
+    ///
+    /// NOTE: This method does not perform automatic reconnection. Use [WStompClientBuilder] to auto-reconnect.
     pub fn from_framed(ws_framed: Framed<BoxedSocket, Codec>) -> Self {
         // Channel for you to send STOMP frames to the handler task
         let (app_tx, app_rx) = mpsc::channel::<Message<ToServer>>(100);

@@ -3,7 +3,7 @@ pub struct WStompConfig<U> {
     opts: WStompConfigOpts,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct WStompConfigOpts {
     #[cfg(feature = "rustls")]
     pub ssl: bool,
