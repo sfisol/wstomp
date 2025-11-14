@@ -30,6 +30,9 @@ pub(crate) async fn stomp_handler_task(
 
     let mut interval = actix_rt::time::interval(Duration::from_secs(20));
 
+    let mut pings_sent = 0;
+    let mut pongs_received = 0;
+
     loop {
         select! {
             // Received a message from the WebSocket server
@@ -51,10 +54,10 @@ pub(crate) async fn stomp_handler_task(
                         finished_reading = true;
                     }
                     WsFrame::Close(reason) => {
-                        let _ = stomp_tx.send(WStompEvent::WebsocketClosed(reason)).await;
+                        let _ = stomp_tx.send(WStompEvent::Error(WStompError::WebsocketClosed(reason))).await;
                         break;
                     }
-                    WsFrame::Pong(_) => {}
+                    WsFrame::Pong(_) => pongs_received += 1,
                     WsFrame::Continuation(item) => {
                         match item {
                             WsItem::FirstText(bytes) => {
@@ -121,7 +124,17 @@ pub(crate) async fn stomp_handler_task(
             }
 
             _ = interval.tick() => {
-                let _ = ws_sink.send(WsMessage::Ping(Bytes::from_static(b"wstomp"))).await;
+                if pongs_received < pings_sent {
+                    let _ = stomp_tx.send(WStompEvent::Error(WStompError::PingTimeout)).await;
+                    break;
+                }
+                match ws_sink.send(WsMessage::Ping(Bytes::from_static(b"wstomp"))).await {
+                    Ok(_) => pings_sent += 1,
+                    Err(err) => {
+                        let _ = stomp_tx.send(WStompEvent::Error(WStompError::PingFailed(err.into()))).await;
+                        break;
+                    }
+                }
             }
 
             // 3. Both streams closed, exit loop

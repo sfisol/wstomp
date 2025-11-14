@@ -8,7 +8,8 @@ use tokio::sync::mpsc::error::SendError;
 #[derive(Debug)]
 pub enum WStompConnectError {
     WsClientError(WsClientError),
-    ConnectMessageFailed(SendError<Message<ToServer>>),
+    ConnectMessageFailed(Box<SendError<Message<ToServer>>>),
+    ReconnectionLimit,
 }
 
 /// Custom enum combine events in WebSocket and STOMP
@@ -16,8 +17,6 @@ pub enum WStompConnectError {
 pub enum WStompEvent {
     /// Regular message from STOMP protocol
     Message(Message<FromServer>),
-    /// Websocket closed connection (with reason)
-    WebsocketClosed(Option<CloseReason>),
     /// WebSocket or STOMP error combined
     Error(WStompError),
 }
@@ -44,6 +43,12 @@ pub enum WStompError {
     /// This is a warning that WebSocket protocol finished receiving data, but STOMP protocol
     /// doesn't recognize it as a full STOMP message. Should not happen, can be ignored in most cases.
     IncompleteStompFrame,
+    /// Websocket closed connection (with reason)
+    WebsocketClosed(Option<CloseReason>),
+    /// Can't send ping, probably network problems
+    PingFailed(anyhow::Error),
+    /// Haven't received pong from last ping
+    PingTimeout,
 }
 
 impl std::fmt::Display for WStompConnectError {
@@ -51,6 +56,7 @@ impl std::fmt::Display for WStompConnectError {
         match self {
             Self::WsClientError(err) => write!(f, "WebSocket receive error: {}", err),
             Self::ConnectMessageFailed(msg) => write!(f, "WebSocket receive error: {}", msg),
+            Self::ReconnectionLimit => write!(f, "Reconnection retry limit reached"),
         }
     }
 }
@@ -61,12 +67,22 @@ impl std::fmt::Display for WStompError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WsReceive(err) => write!(f, "WebSocket receive error: {}", err),
+            Self::WsSend(err) => write!(f, "WebSocket send error: {}", err),
             Self::StompDecoding(err) => write!(f, "STOMP decoding error: {}", err),
             Self::StompEncoding(err) => write!(f, "STOMP encoding error: {}", err),
             Self::IncompleteStompFrame => {
                 write!(f, "STOMP decoding warning: Dropped incomplete frame")
             }
-            Self::WsSend(err) => write!(f, "WebSocket send error: {}", err),
+            Self::WebsocketClosed(reason) => write!(
+                f,
+                "Websocket closed {}",
+                reason
+                    .as_ref()
+                    .map(|r| r.description.clone().unwrap_or_default())
+                    .unwrap_or_default()
+            ),
+            Self::PingFailed(err) => write!(f, "Websocket ping failed: {err}"),
+            Self::PingTimeout => write!(f, "Websocket ping timeout"),
         }
     }
 }
