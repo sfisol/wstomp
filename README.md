@@ -9,11 +9,11 @@ This crate provides a simple client to connect to a STOMP-enabled WebSocket serv
 * Connects to STOMP servers over WebSocket using [`awc`](https://crates.io/crates/awc).
 * Handles all STOMP protocol encoding and decoding via [`async-stomp`](https://crates.io/crates/async-stomp).
 * Manages WebSocket ping/pong heartbeats automatically in a background task.
-* Provides a simple `tokio::mpsc` channel-based API (`WStompClient`) for sending and receiving STOMP frames.
+* Provides a simple `tokio::mpsc` channel-based API ([`WStompClient`]) for sending and receiving STOMP frames.
 * Connection helpers for various authentication methods:
-  * `connect`: Anonymous connection.
-  * `connect_with_pass`: Login and passcode authentication.
-  * `connect_with_token`: Authentication using an authorization token header.
+  * [`connect`]: Anonymous connection.
+  * [`connect_with_pass`]: Login and passcode authentication.
+  * [`connect_with_token`]: Authentication using an authorization token header.
 * Optional `rustls` feature for SSL connections, with helpers that force HTTP/1.1 for compatibility with servers like SockJS.
 
 ## Installation
@@ -24,8 +24,6 @@ Add this to your `Cargo.toml`:
 [dependencies]
 wstomp = "0.1.0" # Replace with the actual version
 actix-rt = "2.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-futures-util = "0.3"
 ```
 
 For SSL support, enable the `rustls` feature:
@@ -109,7 +107,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     other => println!("Received other frame: {:?}", other),
                 }
             }
-            WStompEvent::WebsocketClosed(reason) => break,
             // Handle errors
             WStompEvent::Error(err) => {
                 match err {
@@ -176,11 +173,41 @@ async fn main() {
 }
 ```
 
+### Auto-reconnect
+
+Use [`WStompConfig::build_and_connect_with_reconnection_cb`] method to automatically perform a full reconnect upon errors.
+
+```rust,no_run
+use wstomp::{WStompClient, WStompConfig, WStompConnectError};
+
+#[actix_rt::main]
+async fn main() {
+    let url = "wss://secure-server.com/ws";
+    let session_token = "session_token";
+
+    let cb = {
+        move |wstomp_client_res: Result<WStompClient, WStompConnectError>| {
+            async move {
+                // Unwrap wstomp client here or react to an error.
+                // Upon an error you can return from the callback to make wstomp library a re-connection attempt
+            }
+        }
+    };
+
+    let res = WStompConfig::new(url)
+        .ssl()
+        .auth_token(session_token)
+        .build_and_connect_with_reconnection_cb(cb);
+
+    // ... do different stuff here, but don't exit immediately as this will terminate wstomp loop.
+}
+```
+
 ## Error Handling
 
-The connection functions (`connect`, `connect_ssl`, etc.) return a `Result<WStompClient, WStompConnectError>`.
+The connection functions ([`connect`], [`connect_ssl`], etc.) return a `Result<WStompClient, WStompConnectError>`.
 
-Once connected, the `WStompClient::rx` channel produces `WStompEvent` items, it may be a message, websocket closing, or `WStompError`.
+Once connected, the `WStompClient::rx` channel produces [`WStompEvent`] items, it may be a message or [`WStompError`].
 
 * **`WStompConnectError`**: An error that occurs during the initial WebSocket and STOMP `CONNECT` handshake.
 
@@ -188,6 +215,9 @@ Once connected, the `WStompClient::rx` channel produces `WStompEvent` items, it 
   * `WsReceive` / `WsSend`: A WebSocket protocol error.
   * `StompDecoding` / `StompEncoding`: A STOMP frame decoding/encoding error.
   * `IncompleteStompFrame`: A warning indicating that data was received but was not enough to form a complete STOMP frame. The client has dropped this data. This is often safe to ignore or log as a warning.
+  * `WebsocketClosed`: WebSocket was closed, possibly a reason from `awc` library is inside.
+  * `PingFailed`: Couldn't send ping through the WebSocket protocol.
+  * `PingTimeout`: There was no pong for last ping.
 
 ## License
 

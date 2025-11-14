@@ -14,7 +14,9 @@ where
     WStompConfig::new(url).ssl().build_and_connect().await
 }
 
-/// Connect to STOMP server through SSL using authorization token
+/// Connect to STOMP server through SSL using authorization token.
+///
+/// Creates and builds the client automatically.
 pub async fn connect_ssl_with_token<U>(
     url: U,
     auth_token: impl Into<String>,
@@ -30,7 +32,9 @@ where
         .await
 }
 
-/// Connect to STOMP server through SSL using password
+/// Connect to STOMP server through SSL using password.
+///
+/// Creates and builds the client automatically.
 pub async fn connect_ssl_with_pass<U>(
     url: U,
     login: String,
