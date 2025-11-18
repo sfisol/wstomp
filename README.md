@@ -2,6 +2,13 @@
 
 A STOMP-over-WebSocket client library for Rust, built on top of `awc` and `async-stomp`.
 
+[![crates.io](https://img.shields.io/crates/v/wstomp)](https://crates.io/crates/wstomp)
+[![Documentation](https://docs.rs/wstomp/badge.svg)](https://docs.rs/wstomp)
+![MIT or Apache 2.0 licensed](https://img.shields.io/crates/l/wstomp.svg)
+[![Dependency Status](https://deps.rs/crate/wstomp/0.1.0/status.svg)](https://deps.rs/crate/wstomp/0.1.0)
+[![CI](https://github.com/sfisol/wstomp/actions/workflows/pipeline.yaml/badge.svg)](https://github.com/sfisol/wstomp/actions/workflows/pipeline.yaml)
+[![downloads](https://img.shields.io/crates/d/wstomp.svg)](https://crates.io/crates/wstomp)
+
 This crate provides a simple client to connect to a STOMP-enabled WebSocket server (like RabbitMQ over Web-STOMP, or ActiveMQ). It handles the WebSocket connection, STOMP frame encoding/decoding, and WebSocket heartbeat (ping/pong) for you.
 
 ## Features

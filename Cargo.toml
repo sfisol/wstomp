@@ -1,11 +1,10 @@
 [package]
 name = "wstomp"
 version = "0.1.0"
-edition = "2024"
-license = "MIT OR Apache-2.0"
+description = "A STOMP-over-WebSocket client library for Rust, built on top of awc and async-stomp"
 authors = ["Michał Pokrywka <wolfmoon@o2.pl>"]
 readme = "README.md"
-keywords = ["stomp", "websocket", "client", "actix", "async", "web"]
+keywords = ["stomp", "websocket", "actix", "async", "web"]
 homepage = "https://github.com/sfisol/wstomp"
 repository = "https://github.com/sfisol/wstomp"
 documentation = "https://docs.rs/wstomp"
@@ -15,6 +14,8 @@ categories = [
     "web-programming::http-client",
     "web-programming::websocket",
 ]
+license = "MIT OR Apache-2.0"
+edition = "2024"
 
 [features]
 default = ["rustls"]
