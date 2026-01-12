@@ -1,3 +1,7 @@
+#[cfg(feature = "rustls")]
+use tokio_rustls::rustls::Certificate;
+use tokio_rustls::rustls::{PrivateKey};
+
 pub struct WStompConfig<U> {
     url: U,
     opts: WStompConfigOpts,
@@ -10,6 +14,8 @@ pub struct WStompConfigOpts {
     pub auth_token: Option<String>,
     pub login: Option<String>,
     pub passcode: Option<String>,
+    pub cert_chain: Option<Vec<Certificate>>,
+    pub key_der: Option<PrivateKey>,
     pub additional_headers: Vec<(String, String)>,
     pub client: Option<awc::Client>,
 
@@ -27,6 +33,8 @@ impl Default for WStompConfigOpts {
             auth_token: Default::default(),
             login: Default::default(),
             passcode: Default::default(),
+            cert_chain: Default::default(),
+            key_der: Default::default(),
             additional_headers: Default::default(),
             client: Default::default(),
 
@@ -87,6 +95,17 @@ impl<U> WStompConfig<U> {
     /// Sets the `passcode` header for STOMP authentication.
     pub fn passcode(mut self, passcode: impl Into<String>) -> Self {
         self.opts.passcode = Some(passcode.into());
+        self
+    }
+
+    /// Configures the TLS connection to authenticate via certificate.
+    pub fn cert(mut self, cert_chain: impl Into<Vec<Certificate>>) -> Self {
+        self.opts.cert_chain = Some(cert_chain.into());
+        self
+    }
+
+    pub fn key(mut self, key_der: impl Into<PrivateKey>) -> Self {
+        self.opts.key_der = Some(key_der.into());
         self
     }
 

@@ -1,7 +1,7 @@
 use actix_http::Uri;
 use awc::{Client, error::HttpError};
 use std::sync::Arc;
-use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
+use tokio_rustls::rustls::{self, Certificate, ClientConfig, PrivateKey, RootCertStore};
 
 use crate::{WStompClient, WStompConfig, WStompConnectError};
 
@@ -52,8 +52,31 @@ where
         .await
 }
 
+/// Connect to STOMP server through SSL using certificate.
+///
+/// Creates and builds the client automatically.
+pub async fn connect_ssl_with_cert<U>(
+    url: U,
+    cert_chain: Vec<Certificate>,
+    key_der: PrivateKey,
+) -> Result<WStompClient, WStompConnectError>
+where
+    Uri: TryFrom<U>,
+    <Uri as TryFrom<U>>::Error: Into<HttpError>,
+{
+    WStompConfig::new(url)
+        .ssl()
+        .cert(cert_chain)
+        .key(key_der)
+        .build_and_connect()
+        .await
+}
+
 // This creates ssl client which forces usage of http/1.1 for compatibility with various SockJS servers
-pub(crate) fn create_ssl_client() -> Client {
+pub(crate) fn create_ssl_client(
+    cert_chain: Option<Vec<Certificate>>,
+    key_der: Option<PrivateKey>,
+) -> Client {
     // 1. Create a root certificate store
 
     // Switch to this after updating rustls
@@ -71,10 +94,20 @@ pub(crate) fn create_ssl_client() -> Client {
     }));
 
     // 2. Create a rustls ClientConfig
-    let mut config = ClientConfig::builder()
+    let config_builder = ClientConfig::builder()
         .with_safe_defaults()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+        .with_root_certificates(root_store);
+
+    let mut config = if let (Some(cert), Some(key_der)) = (cert_chain, key_der) {
+        match config_builder.with_single_cert(cert, key_der) {
+            Ok(config) => config,
+            Err(error) => {
+                panic!("Error initializing TLS client certificate authentication. {error:?}");
+            }
+        }
+    } else {
+        config_builder.with_no_client_auth()
+    };
 
     // // 3. IMPORTANT: Force HTTP/1.1 for ALPN
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
