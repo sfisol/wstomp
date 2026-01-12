@@ -19,7 +19,8 @@ edition = "2024"
 
 [features]
 default = ["rustls"]
-rustls = ["tokio-rustls", "webpki-roots", "awc/rustls"]
+rustls = ["tokio-rustls", "webpki-roots"]
+tokio-rustls = ["dep:tokio-rustls"]
 
 [dependencies]
 actix-codec = "0.5"
@@ -27,7 +28,7 @@ actix-rt = "2"
 actix-http = "3"
 anyhow = "1"
 async-stomp = "0.6"
-awc = "3"
+awc = { version = "3.8.2", default-features = false, features = ["rustls-0_23"] }
 backoff = { version = "0.4", features = ["tokio"] }
 bytes = "1"
 futures-util = "0.3"
@@ -36,5 +37,7 @@ tokio = { version = "1", features = ["macros"] }
 tokio-util = "0.7"
 
 # rustls
+rustls = "0.23.36"
 webpki-roots = { version = "1", optional = true }
-tokio-rustls = { version = "0.23", optional = true }
+tokio-rustls = { version = "0.26.4", optional = true }
+log = "0.4.29"

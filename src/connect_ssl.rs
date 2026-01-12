@@ -1,8 +1,10 @@
-use actix_http::Uri;
-use awc::{Client, error::HttpError};
-use std::sync::Arc;
-use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
+use std::{sync::Arc};
 
+use actix_http::Uri;
+use log::info;
+use awc::{Client, error::HttpError};
+use rustls::ClientConfig;
+use tokio_rustls::rustls::{RootCertStore, pki_types::{CertificateDer, PrivateKeyDer, TrustAnchor}};
 use crate::{WStompClient, WStompConfig, WStompConnectError};
 
 /// Connect to STOMP server through SSL
@@ -52,35 +54,74 @@ where
         .await
 }
 
+/// Connect to STOMP server through SSL using certificate.
+///
+/// Creates and builds the client automatically.
+pub async fn connect_ssl_with_cert<U>(
+    url: U,
+    cert_chain: Vec<CertificateDer<'static>>,
+    key_der: PrivateKeyDer<'static>,
+    ca_certs: Vec<CertificateDer<'static>>
+) -> Result<WStompClient, WStompConnectError>
+where
+    Uri: TryFrom<U>,
+    <Uri as TryFrom<U>>::Error: Into<HttpError>,
+{
+    WStompConfig::new(url)
+        .ssl()
+        .cert(cert_chain)
+        .key(key_der)
+        .ca_certs(ca_certs)
+        .build_and_connect()
+        .await
+}
+
 // This creates ssl client which forces usage of http/1.1 for compatibility with various SockJS servers
-pub(crate) fn create_ssl_client() -> Client {
+pub(crate) fn create_ssl_client(
+    cert_chain: Option<Vec<CertificateDer<'static>>>,
+    key_der: Option<Arc<PrivateKeyDer<'static>>>,
+    ca_certs: Option<Vec<CertificateDer<'static>>>
+) -> Client {
     // 1. Create a root certificate store
-
-    // Switch to this after updating rustls
-    // let root_store = rustls::RootCertStore {
-    //     roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    // };
-
     let mut root_store = RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject.as_ref(),
-            ta.subject_public_key_info.as_ref(),
-            ta.name_constraints.as_deref(),
-        )
-    }));
+    if let Some(ca_certs) = ca_certs {
+        for cert in ca_certs {
+            match root_store.add(cert) {
+                Ok(()) => info!("Successfully added CA certificate."),
+                Err(error) => panic!("Error adding CA certificate: {error}")
+            }
+                // .map_err(|e| anyhow!("Failed to add CA certificate: {}", e));
+        }
+    } else {
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned().map(|ta| 
+            TrustAnchor {
+                subject: ta.subject,
+                subject_public_key_info: ta.subject_public_key_info,
+                name_constraints: ta.name_constraints  
+            })
+        );
+    }
 
     // 2. Create a rustls ClientConfig
-    let mut config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+    let config_builder = ClientConfig::builder()
+        .with_root_certificates(root_store);
+
+    let mut config = if let (Some(cert), Some(key)) = (cert_chain, key_der) {
+        match config_builder.with_client_auth_cert(cert, key.clone_key()) {
+            Ok(config) => config,
+            Err(error) => {
+                panic!("Error initializing TLS client certificate authentication. {error:?}");
+            }
+        }
+    } else {
+        config_builder.with_no_client_auth()
+    };
 
     // // 3. IMPORTANT: Force HTTP/1.1 for ALPN
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
     // // 4. Create an awc Connector with the custom rustls config
-    let connector = awc::Connector::new().rustls(Arc::new(config));
+    let connector = awc::Connector::new().rustls_0_23(Arc::new(config));
 
     Client::builder().connector(connector).finish()
 }
