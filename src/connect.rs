@@ -150,7 +150,9 @@ async fn inner_connect(
     } else {
         #[cfg(feature = "rustls")]
         if opts.ssl {
-            crate::connect_ssl::create_ssl_client(opts.cert_chain, opts.key_der)
+            use std::sync::Arc;
+
+            crate::connect_ssl::create_ssl_client(opts.cert_chain, opts.key_der, opts.ca_certs)
         } else {
             awc::Client::default()
         }

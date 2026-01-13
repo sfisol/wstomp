@@ -1,6 +1,6 @@
-#[cfg(feature = "rustls")]
-use tokio_rustls::rustls::Certificate;
-use tokio_rustls::rustls::{PrivateKey};
+use std::sync::Arc;
+
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 pub struct WStompConfig<U> {
     url: U,
@@ -9,13 +9,13 @@ pub struct WStompConfig<U> {
 
 #[derive(Clone)]
 pub struct WStompConfigOpts {
-    #[cfg(feature = "rustls")]
     pub ssl: bool,
     pub auth_token: Option<String>,
     pub login: Option<String>,
     pub passcode: Option<String>,
-    pub cert_chain: Option<Vec<Certificate>>,
-    pub key_der: Option<PrivateKey>,
+    pub cert_chain: Option<Vec<CertificateDer<'static>>>,
+    pub key_der: Option<Arc<PrivateKeyDer<'static>>>,
+    pub ca_certs: Option<Vec<CertificateDer<'static>>>,
     pub additional_headers: Vec<(String, String)>,
     pub client: Option<awc::Client>,
 
@@ -35,6 +35,7 @@ impl Default for WStompConfigOpts {
             passcode: Default::default(),
             cert_chain: Default::default(),
             key_der: Default::default(),
+            ca_certs: Default::default(),
             additional_headers: Default::default(),
             client: Default::default(),
 
@@ -99,15 +100,21 @@ impl<U> WStompConfig<U> {
     }
 
     /// Configures the TLS connection to authenticate via certificate.
-    pub fn cert(mut self, cert_chain: impl Into<Vec<Certificate>>) -> Self {
+    pub fn cert(mut self, cert_chain: impl Into<Vec<CertificateDer<'static>>>) -> Self {
         self.opts.cert_chain = Some(cert_chain.into());
         self
     }
 
-    pub fn key(mut self, key_der: impl Into<PrivateKey>) -> Self {
-        self.opts.key_der = Some(key_der.into());
+    pub fn key(mut self, key: impl Into<Arc<PrivateKeyDer<'static>>>) -> Self {
+        self.opts.key_der = Some(key.into());
         self
     }
+
+    pub fn ca_certs(mut self, ca_certs: impl Into<Vec<CertificateDer<'static>>>) -> Self {
+        self.opts.ca_certs = Some(ca_certs.into());
+        self
+    }
+
 
     /// Appends a list of custom headers to the connection configuration.
     ///
