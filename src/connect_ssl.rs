@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{sync::Arc};
 
 use actix_http::Uri;
 use anyhow::anyhow;
