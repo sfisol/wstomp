@@ -1,7 +1,7 @@
 use std::{sync::Arc};
 
 use actix_http::Uri;
-use anyhow::anyhow;
+use log::info;
 use awc::{Client, error::HttpError};
 use rustls::ClientConfig;
 use tokio_rustls::rustls::{RootCertStore, pki_types::{CertificateDer, PrivateKeyDer, TrustAnchor}};
@@ -83,17 +83,14 @@ pub(crate) fn create_ssl_client(
     ca_certs: Option<Vec<CertificateDer<'static>>>
 ) -> Client {
     // 1. Create a root certificate store
-
-    // Switch to this after updating rustls
-    // let root_store = rustls::RootCertStore {
-    //     roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    // };
-    
     let mut root_store = RootCertStore::empty();
     if let Some(ca_certs) = ca_certs {
         for cert in ca_certs {
-            root_store.add(cert)
-                .map_err(|e| anyhow!("Failed to add CA certificate: {}", e));
+            match root_store.add(cert) {
+                Ok(()) => info!("Successfully added CA certificate."),
+                Err(error) => panic!("Error adding CA certificate: {error}")
+            }
+                // .map_err(|e| anyhow!("Failed to add CA certificate: {}", e));
         }
     } else {
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned().map(|ta| 
