@@ -28,7 +28,7 @@ actix-rt = "2"
 actix-http = "3"
 anyhow = "1"
 async-stomp = "0.6"
-awc = { version = "3.8.1", features = ["rustls-0_23"] }
+awc = { version = "3.8.2", features = ["rustls-0_23"] }
 backoff = { version = "0.4", features = ["tokio"] }
 bytes = "1"
 futures-util = "0.3"
