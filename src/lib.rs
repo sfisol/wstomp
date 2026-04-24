@@ -1,13 +1,16 @@
 #![doc = pretty_readme::docify!("README.md", "https://docs.rs/wstomp/latest/wstomp/", "./")]
 
 mod config;
-pub use config::WStompConfig;
+pub use config::{AuthTokenFn, WStompConfig};
 
 mod client;
 pub use client::{WStompClient, WStompReceiver, WStompSender};
 
 mod connect;
-pub use connect::{StompConnect, connect, connect_with_pass, connect_with_token};
+pub use connect::{
+    ReconnectControl, StompConnect, WStompReconnectHandle, connect, connect_with_pass,
+    connect_with_token,
+};
 
 mod stomp_handler;
 

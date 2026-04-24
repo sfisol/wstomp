@@ -21,6 +21,7 @@ This crate provides a simple client to connect to a STOMP-enabled WebSocket serv
   * [`connect`]: Anonymous connection.
   * [`connect_with_pass`]: Login and passcode authentication.
   * [`connect_with_token`]: Authentication using an authorization token header.
+  * [`WStompConfig::auth_token_fn`]: Dynamic token provider — refreshes credentials on every (re)connect.
 * Optional `rustls` feature for SSL connections, with helpers that force HTTP/1.1 for compatibility with servers like SockJS.
 
 ## Installation
@@ -42,7 +43,7 @@ wstomp = { version = "0.1.0", features = ["rustls"] }
 
 ## Usage
 
-Here is a basic example of connecting, subscribing to a topic, and receiving messages.
+Here is a basic example of connecting, subscribing to a topic and receiving messages.
 
 ```rust,no_run
 use wstomp::{
@@ -182,31 +183,42 @@ async fn main() {
 
 ### Auto-reconnect
 
-Use [`WStompConfig::build_and_connect_with_reconnection_cb`] method to automatically perform a full reconnect upon errors.
+Install a callback via [`WStompConfig::on_reconnect`] and call `build_and_connect` to automatically perform a full reconnect upon errors. The callback receives the result of each connection attempt and returns a [`ReconnectControl`] value that drives the loop.
 
 ```rust,no_run
-use wstomp::{WStompClient, WStompConfig, WStompConnectError};
+use wstomp::{ReconnectControl, WStompClient, WStompConfig, WStompConnectError, WStompReconnectHandle};
 
 #[actix_rt::main]
 async fn main() {
     let url = "wss://secure-server.com/ws";
     let session_token = "session_token";
 
-    let cb = {
-        move |wstomp_client_res: Result<WStompClient, WStompConnectError>| {
-            async move {
-                // Unwrap wstomp client here or react to an error.
-                // Upon an error you can return from the callback to make wstomp library a re-connection attempt
+    let cb = move |wstomp_client_res: Result<WStompClient, WStompConnectError>| {
+        async move {
+            match wstomp_client_res {
+                Ok(client) => {
+                    // Use the client; when the session ends, Continue triggers a reconnect.
+                    ReconnectControl::Continue
+                }
+                Err(err) => {
+                    eprintln!("Connection failed: {}", err);
+                    // Return Stop to give up, or Continue to keep retrying with backoff.
+                    ReconnectControl::Continue
+                }
             }
         }
     };
 
-    let res = WStompConfig::new(url)
+    // Returns immediately with a handle; the reconnection loop runs in the background.
+    let _handle: WStompReconnectHandle = WStompConfig::new(url)
         .ssl()
         .auth_token(session_token)
-        .build_and_connect_with_reconnection_cb(cb);
+        .on_reconnect(cb)
+        .build_and_connect()
+        .expect("Failed to start reconnection loop");
 
-    // ... do different stuff here, but don't exit immediately as this will terminate wstomp loop.
+    // Keep _handle alive for as long as the loop should run.
+    // Dropping it (or calling _handle.abort()) stops the loop.
 }
 ```
 

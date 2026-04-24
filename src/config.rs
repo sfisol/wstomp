@@ -1,17 +1,36 @@
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 #[cfg(feature = "rustls")]
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
-pub struct WStompConfig<U> {
-    url: U,
-    opts: WStompConfigOpts,
+/// Closure type for dynamic auth token retrieval. Invoked on every
+/// (re)connection attempt so the token can be refreshed out-of-band by the
+/// application (e.g. via a background token-refresh task) without recreating
+/// the wstomp client.
+pub type AuthTokenFn =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Option<String>> + Send>> + Send + Sync>;
+
+/// Marker for a [`WStompConfig`] without a reconnection callback. In this
+/// state [`WStompConfig::build_and_connect`] is a one-shot async method that
+/// resolves to a [`crate::WStompClient`].
+pub struct NoReconnect;
+
+/// Marker for a [`WStompConfig`] with a reconnection callback installed via
+/// [`WStompConfig::on_reconnect`]. In this state
+/// [`WStompConfig::build_and_connect`] spawns the reconnect loop and returns
+/// a [`crate::WStompReconnectHandle`].
+pub struct Reconnecting<F>(pub(crate) F);
+
+pub struct WStompConfig<U, R = NoReconnect> {
+    pub(crate) url: U,
+    pub(crate) opts: WStompConfigOpts,
+    pub(crate) reconnect: R,
 }
 
 #[derive(Clone)]
 pub struct WStompConfigOpts {
     pub ssl: bool,
-    pub auth_token: Option<String>,
+    pub auth_token: Option<AuthTokenFn>,
     pub login: Option<String>,
     pub passcode: Option<String>,
     #[cfg(feature = "rustls")]
@@ -54,14 +73,17 @@ impl Default for WStompConfigOpts {
     }
 }
 
-impl<U> WStompConfig<U> {
+impl<U> WStompConfig<U, NoReconnect> {
     pub fn new(url: U) -> Self {
         Self {
             url,
             opts: WStompConfigOpts::default(),
+            reconnect: NoReconnect,
         }
     }
+}
 
+impl<U, R> WStompConfig<U, R> {
     /// Get url to which this config is assigned to use.
     pub fn get_url(&self) -> &U {
         &self.url
@@ -88,9 +110,29 @@ impl<U> WStompConfig<U> {
         self
     }
 
-    /// Sets the authentication token for the connection.
+    /// Sets a static authentication token for the connection. The token is
+    /// fixed for the lifetime of the client — use [Self::auth_token_fn] when
+    /// the token needs to be refreshed between reconnects.
     pub fn auth_token(mut self, auth_token: impl Into<String>) -> Self {
-        self.opts.auth_token = Some(auth_token.into());
+        let token = auth_token.into();
+        self.opts.auth_token = Some(Arc::new(move || {
+            let token = token.clone();
+            Box::pin(async move { Some(token) })
+        }));
+        self
+    }
+
+    /// Sets a dynamic authentication token provider. `f` is invoked on every
+    /// (re)connection attempt, so returning a fresh token allows the app to
+    /// refresh credentials without tearing down the wstomp client.
+    ///
+    /// Returning `None` from `f` omits the `Authorization` header entirely.
+    pub fn auth_token_fn<F, Fut>(mut self, f: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Option<String>> + Send + 'static,
+    {
+        self.opts.auth_token = Some(Arc::new(move || Box::pin(f())));
         self
     }
 
@@ -145,8 +187,8 @@ impl<U> WStompConfig<U> {
         self
     }
 
-    /// If [Self::build_and_connect_with_reconnection_cb] method is used,
-    /// sets the initial retry interval in seconds.
+    /// When [`Self::on_reconnect`] is used to install a reconnection
+    /// callback, sets the initial retry interval in seconds.
     ///
     /// Example: Start retrying after 3 seconds.
     pub fn retry_initial_interval(mut self, seconds: u64) -> Self {
@@ -154,8 +196,8 @@ impl<U> WStompConfig<U> {
         self
     }
 
-    /// If [Self::build_and_connect_with_reconnection_cb] method is used,
-    /// sets the maximum retry interval in seconds.
+    /// When [`Self::on_reconnect`] is used to install a reconnection
+    /// callback, sets the maximum retry interval in seconds.
     ///
     /// Example: Cap the wait time at 30 seconds.
     pub fn retry_max_interval(mut self, seconds: u64) -> Self {
@@ -163,8 +205,8 @@ impl<U> WStompConfig<U> {
         self
     }
 
-    /// If [Self::build_and_connect_with_reconnection_cb] method is used,
-    /// sets the multiplier for the backoff.
+    /// When [`Self::on_reconnect`] is used to install a reconnection
+    /// callback, sets the multiplier for the backoff.
     ///
     /// Example: 2.0 doubles the wait time after every failure.
     pub fn retry_multiplier(mut self, multiplier: f64) -> Self {
@@ -172,8 +214,9 @@ impl<U> WStompConfig<U> {
         self
     }
 
-    /// If [Self::build_and_connect_with_reconnection_cb] method is used,
-    /// sets a maximum total time to try reconnecting before giving up.
+    /// When [`Self::on_reconnect`] is used to install a reconnection
+    /// callback, sets a maximum total time to try reconnecting before giving
+    /// up.
     ///
     /// Defaults to no limit if method not invoked.
     pub fn retry_max_elapsed_time(mut self, seconds: u64) -> Self {
