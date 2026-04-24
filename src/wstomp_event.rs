@@ -54,7 +54,12 @@ pub enum WStompError {
 impl std::fmt::Display for WStompConnectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::WsClientError(err) => write!(f, "WebSocket receive error: {}", err),
+            Self::WsClientError(WsClientError::InvalidResponseStatus(status)) => write!(
+                f,
+                "WebSocket connection error: server rejected upgrade with HTTP {}",
+                status
+            ),
+            Self::WsClientError(err) => write!(f, "WebSocket connection error: {}", err),
             Self::ConnectMessageFailed(msg) => write!(f, "WebSocket receive error: {}", msg),
             Self::ReconnectionLimit => write!(f, "Reconnection retry limit reached"),
         }

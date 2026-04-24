@@ -33,7 +33,8 @@ impl WStompClient {
     /// It also manages websocket ping-pong heartbeat.
     ///
     /// NOTE: This method does not perform automatic reconnection.
-    /// Use [WStompConfig::build_and_connect_with_reconnection_cb] to auto-reconnect.
+    /// Install a callback via [WStompConfig::on_reconnect] and call
+    /// `build_and_connect` to auto-reconnect.
     pub fn from_framed(ws_framed: Framed<BoxedSocket, Codec>) -> Self {
         // Channel for you to send STOMP frames to the handler task
         let (app_tx, app_rx) = mpsc::channel::<Message<ToServer>>(100);

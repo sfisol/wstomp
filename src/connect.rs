@@ -5,10 +5,56 @@ use awc::{
     ws::WebsocketsRequest,
 };
 use backoff::{ExponentialBackoffBuilder, backoff::Backoff};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-use crate::{WStompClient, WStompConfig, WStompConnectError, config::WStompConfigOpts};
+use crate::{
+    WStompClient, WStompConfig, WStompConnectError,
+    config::{NoReconnect, Reconnecting, WStompConfigOpts},
+};
+
+/// Signal returned by the reconnection callback to control what the
+/// reconnection loop does next.
+#[derive(Debug, Clone)]
+pub enum ReconnectControl {
+    /// Reconnect using the normal exponential-backoff schedule. Short-lived
+    /// sessions (closed within one `retry_initial_interval`) are treated as
+    /// failures for backoff purposes so a subscribe error doesn't cause a
+    /// tight reconnect loop.
+    Continue,
+    /// Sleep for the given duration before the next reconnect attempt, then
+    /// reset the backoff. Use this when the application already knows how
+    /// long the server needs to cool down (e.g. rate-limit headers).
+    DelayThen(Duration),
+    /// Stop the reconnection loop cleanly.
+    Stop,
+}
+
+/// Handle to a running reconnection loop. Dropping it aborts the loop, as
+/// does calling [`Self::abort`] explicitly.
+pub struct WStompReconnectHandle {
+    join: actix_rt::task::JoinHandle<()>,
+}
+
+impl WStompReconnectHandle {
+    /// Abort the reconnection loop. Safe to call more than once; subsequent
+    /// calls are no-ops.
+    pub fn abort(&self) {
+        self.join.abort();
+    }
+
+    /// Returns whether the reconnection loop has finished (either aborted or
+    /// ran to completion via [`ReconnectControl::Stop`]).
+    pub fn is_finished(&self) -> bool {
+        self.join.is_finished()
+    }
+}
+
+impl Drop for WStompReconnectHandle {
+    fn drop(&mut self) {
+        self.join.abort();
+    }
+}
 
 /// Connect to STOMP server without additional parameters
 ///
@@ -75,7 +121,27 @@ impl StompConnect for WebsocketsRequest {
     }
 }
 
-impl<U> WStompConfig<U>
+impl<U> WStompConfig<U, NoReconnect> {
+    /// Install a reconnection callback. Switches the config into the
+    /// reconnecting state, where [`Self::build_and_connect`] spawns a
+    /// reconnect loop and hands the resulting client (or connection error)
+    /// to `cb` on every attempt. The callback's return value
+    /// ([`ReconnectControl`]) drives the loop.
+    pub fn on_reconnect<F, R>(self, cb: F) -> WStompConfig<U, Reconnecting<F>>
+    where
+        F: Fn(Result<WStompClient, WStompConnectError>) -> R + 'static,
+        R: Future<Output = ReconnectControl>,
+    {
+        let (url, opts) = self.into_parts();
+        WStompConfig {
+            url,
+            opts,
+            reconnect: Reconnecting(cb),
+        }
+    }
+}
+
+impl<U> WStompConfig<U, NoReconnect>
 where
     Uri: TryFrom<U>,
     <Uri as TryFrom<U>>::Error: Into<HttpError>,
@@ -89,20 +155,34 @@ where
             WStompConnectError::WsClientError(WsClientError::from(err))
         })?;
 
-        inner_connect(uri, opts).await
+        let auth_token = match &opts.auth_token {
+            Some(f) => f().await,
+            None => None,
+        };
+        inner_connect(uri, opts, auth_token).await
     }
+}
 
-    /// Build the client and spawns connect procedure with reconnection mechanism.
-    /// The result from the connection procedure and all subsequent reconnection attempts is passed into the callback.
-    pub fn build_and_connect_with_reconnection_cb<F, R>(
-        self,
-        cb: F,
-    ) -> Result<(), WStompConnectError>
-    where
-        F: Fn(Result<WStompClient, WStompConnectError>) -> R + 'static,
-        R: Future<Output = ()>,
-    {
-        let (url, opts) = self.into_parts();
+impl<U, F, R> WStompConfig<U, Reconnecting<F>>
+where
+    Uri: TryFrom<U>,
+    <Uri as TryFrom<U>>::Error: Into<HttpError>,
+    F: Fn(Result<WStompClient, WStompConnectError>) -> R + 'static,
+    R: Future<Output = ReconnectControl>,
+{
+    /// Build the client and spawn the reconnection loop. The returned
+    /// [`WStompReconnectHandle`] aborts the loop on drop.
+    ///
+    /// The callback installed via [`WStompConfig::on_reconnect`] is invoked
+    /// after every connection attempt with either the newly connected
+    /// `WStompClient` or the error from the failed attempt. Its return value
+    /// ([`ReconnectControl`]) controls what the loop does next.
+    pub fn build_and_connect(self) -> Result<WStompReconnectHandle, WStompConnectError> {
+        let WStompConfig {
+            url,
+            opts,
+            reconnect: Reconnecting(cb),
+        } = self;
 
         let uri = Uri::try_from(url).map_err(|e| {
             let err: HttpError = e.into();
@@ -116,24 +196,49 @@ where
             .with_max_elapsed_time(opts.retry_max_elapsed_time.map(Duration::from_secs))
             .build();
 
-        actix_rt::spawn(async move {
+        // A session that closes faster than retry_initial_interval is treated
+        // as a failure for backoff purposes — prevents tight reconnect loops
+        // when e.g. the STOMP subscribe fails right after CONNECT succeeds.
+        let min_session_duration = Duration::from_secs(opts.retry_initial_interval);
+
+        let join = actix_rt::spawn(async move {
             loop {
-                let tx = inner_connect(uri.clone(), opts.clone()).await;
+                let auth_token = match &opts.auth_token {
+                    Some(f) => f().await,
+                    None => None,
+                };
 
-                if tx.is_ok() {
-                    backoff.reset();
-                } else if let Some(duration) = backoff.next_backoff() {
-                    sleep(duration).await;
-                } else {
-                    cb(Err(WStompConnectError::ReconnectionLimit)).await;
-                    break;
+                let connect_start = Instant::now();
+                let tx = inner_connect(uri.clone(), opts.clone(), auth_token).await;
+                let was_ok = tx.is_ok();
+
+                let control = cb(tx).await;
+                let session_duration = connect_start.elapsed();
+
+                match control {
+                    ReconnectControl::Stop => break,
+                    ReconnectControl::DelayThen(d) => {
+                        sleep(d).await;
+                        backoff.reset();
+                    }
+                    ReconnectControl::Continue => {
+                        let short_or_failed = !was_ok || session_duration < min_session_duration;
+                        if short_or_failed {
+                            if let Some(duration) = backoff.next_backoff() {
+                                sleep(duration).await;
+                            } else {
+                                let _ = cb(Err(WStompConnectError::ReconnectionLimit)).await;
+                                break;
+                            }
+                        } else {
+                            backoff.reset();
+                        }
+                    }
                 }
-
-                cb(tx).await;
             }
         });
 
-        Ok(())
+        Ok(WStompReconnectHandle { join })
     }
 }
 
@@ -144,6 +249,7 @@ pub(crate) fn headers_for_token(auth_token: impl Into<String>) -> Vec<(String, S
 async fn inner_connect(
     uri: Uri,
     opts: WStompConfigOpts,
+    auth_token: Option<String>,
 ) -> Result<WStompClient, WStompConnectError> {
     let client = if let Some(client) = opts.client {
         client
@@ -165,7 +271,7 @@ async fn inner_connect(
 
     let mut headers = opts.additional_headers;
 
-    if let Some(auth_token) = opts.auth_token {
+    if let Some(auth_token) = auth_token {
         headers.extend(headers_for_token(auth_token));
     }
 
