@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+#[cfg(feature = "rustls")]
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 pub struct WStompConfig<U> {
@@ -13,8 +14,11 @@ pub struct WStompConfigOpts {
     pub auth_token: Option<String>,
     pub login: Option<String>,
     pub passcode: Option<String>,
+    #[cfg(feature = "rustls")]
     pub cert_chain: Option<Vec<CertificateDer<'static>>>,
+    #[cfg(feature = "rustls")]
     pub key_der: Option<Arc<PrivateKeyDer<'static>>>,
+    #[cfg(feature = "rustls")]
     pub ca_certs: Option<Vec<CertificateDer<'static>>>,
     pub additional_headers: Vec<(String, String)>,
     pub client: Option<awc::Client>,
@@ -33,8 +37,11 @@ impl Default for WStompConfigOpts {
             auth_token: Default::default(),
             login: Default::default(),
             passcode: Default::default(),
+            #[cfg(feature = "rustls")]
             cert_chain: Default::default(),
+            #[cfg(feature = "rustls")]
             key_der: Default::default(),
+            #[cfg(feature = "rustls")]
             ca_certs: Default::default(),
             additional_headers: Default::default(),
             client: Default::default(),
@@ -100,16 +107,19 @@ impl<U> WStompConfig<U> {
     }
 
     /// Configures the TLS connection to authenticate via certificate.
+    #[cfg(feature = "rustls")]
     pub fn cert(mut self, cert_chain: impl Into<Vec<CertificateDer<'static>>>) -> Self {
         self.opts.cert_chain = Some(cert_chain.into());
         self
     }
 
+    #[cfg(feature = "rustls")]
     pub fn key(mut self, key: impl Into<Arc<PrivateKeyDer<'static>>>) -> Self {
         self.opts.key_der = Some(key.into());
         self
     }
 
+    #[cfg(feature = "rustls")]
     pub fn ca_certs(mut self, ca_certs: impl Into<Vec<CertificateDer<'static>>>) -> Self {
         self.opts.ca_certs = Some(ca_certs.into());
         self
