@@ -13,6 +13,7 @@ mod stomp_handler;
 
 #[cfg(feature = "rustls")]
 mod connect_ssl;
+#[cfg(feature = "rustls")]
 pub use connect_ssl::{connect_ssl, connect_ssl_with_pass, connect_ssl_with_token, connect_ssl_with_cert};
 
 pub mod wstomp_event;

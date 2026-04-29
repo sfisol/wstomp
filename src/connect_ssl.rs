@@ -1,10 +1,13 @@
-use std::{sync::Arc};
-
 use actix_http::Uri;
-use log::info;
 use awc::{Client, error::HttpError};
+use log::info;
 use rustls::ClientConfig;
-use tokio_rustls::rustls::{RootCertStore, pki_types::{CertificateDer, PrivateKeyDer, TrustAnchor}};
+use std::sync::Arc;
+use tokio_rustls::rustls::{
+    RootCertStore,
+    pki_types::{CertificateDer, PrivateKeyDer, TrustAnchor},
+};
+
 use crate::{WStompClient, WStompConfig, WStompConnectError};
 
 /// Connect to STOMP server through SSL
@@ -61,7 +64,7 @@ pub async fn connect_ssl_with_cert<U>(
     url: U,
     cert_chain: Vec<CertificateDer<'static>>,
     key_der: PrivateKeyDer<'static>,
-    ca_certs: Vec<CertificateDer<'static>>
+    ca_certs: Vec<CertificateDer<'static>>,
 ) -> Result<WStompClient, WStompConnectError>
 where
     Uri: TryFrom<U>,
@@ -80,7 +83,7 @@ where
 pub(crate) fn create_ssl_client(
     cert_chain: Option<Vec<CertificateDer<'static>>>,
     key_der: Option<Arc<PrivateKeyDer<'static>>>,
-    ca_certs: Option<Vec<CertificateDer<'static>>>
+    ca_certs: Option<Vec<CertificateDer<'static>>>,
 ) -> Client {
     // 1. Create a root certificate store
     let mut root_store = RootCertStore::empty();
@@ -88,23 +91,25 @@ pub(crate) fn create_ssl_client(
         for cert in ca_certs {
             match root_store.add(cert) {
                 Ok(()) => info!("Successfully added CA certificate."),
-                Err(error) => panic!("Error adding CA certificate: {error}")
+                Err(error) => panic!("Error adding CA certificate: {error}"),
             }
-                // .map_err(|e| anyhow!("Failed to add CA certificate: {}", e));
+            // .map_err(|e| anyhow!("Failed to add CA certificate: {}", e));
         }
     } else {
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned().map(|ta| 
-            TrustAnchor {
-                subject: ta.subject,
-                subject_public_key_info: ta.subject_public_key_info,
-                name_constraints: ta.name_constraints  
-            })
+        root_store.extend(
+            webpki_roots::TLS_SERVER_ROOTS
+                .iter()
+                .cloned()
+                .map(|ta| TrustAnchor {
+                    subject: ta.subject,
+                    subject_public_key_info: ta.subject_public_key_info,
+                    name_constraints: ta.name_constraints,
+                }),
         );
     }
 
     // 2. Create a rustls ClientConfig
-    let config_builder = ClientConfig::builder()
-        .with_root_certificates(root_store);
+    let config_builder = ClientConfig::builder().with_root_certificates(root_store);
 
     let mut config = if let (Some(cert), Some(key)) = (cert_chain, key_der) {
         match config_builder.with_client_auth_cert(cert, key.clone_key()) {
