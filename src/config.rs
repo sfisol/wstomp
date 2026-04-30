@@ -167,7 +167,6 @@ impl<U, R> WStompConfig<U, R> {
         self
     }
 
-
     /// Appends a list of custom headers to the connection configuration.
     ///
     /// These headers will be included in the STOMP `CONNECT` frame.

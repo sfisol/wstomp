@@ -30,7 +30,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-wstomp = "0.1.0" # Replace with the actual version
+wstomp = "0.2"
 actix-rt = "2.0"
 ```
 
@@ -38,7 +38,7 @@ For SSL support, enable the `rustls` feature:
 
 ```toml
 [dependencies]
-wstomp = { version = "0.1.0", features = ["rustls"] }
+wstomp = { version = "0.2", features = ["rustls"] }
 ```
 
 ## Usage
@@ -146,7 +146,7 @@ use wstomp::connect_with_token;
 #[actix_rt::main]
 async fn main() {
     let url = "ws://my-server.com/ws/websocket";
-    let token = "my-secret-jwt-token";
+    let token = "my-secret-token";
 
     let client = connect_with_token(url, token)
         .await
@@ -163,6 +163,8 @@ If you are connecting to a `wss://` endpoint and need SSL, use the `rustls` feat
 These helpers are specially configured to force HTTP/1.1, which can be necessary for compatibility with some WebSocket servers (like those using SockJS).
 
 ```rust,no_run
+# #[cfg(feature = "rustls")] {
+
 // Make sure to enable the "rustls" feature in Cargo.toml
 use wstomp::connect_ssl_with_pass;
 
@@ -179,6 +181,8 @@ async fn main() {
     println!("Connected securely!");
     // ... use client
 }
+
+# }
 ```
 
 ### Auto-reconnect
