@@ -1,6 +1,6 @@
 [package]
 name = "wstomp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A STOMP-over-WebSocket client library for Rust, built on top of awc and async-stomp"
 authors = ["Michał Pokrywka <wolfmoon@o2.pl>"]
 readme = "README.md"

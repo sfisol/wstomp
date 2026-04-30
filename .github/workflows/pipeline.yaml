@@ -1,123 +1,105 @@
 name: Build
 on: [push, pull_request]
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  RUSTC_WRAPPER: "sccache"
+  RUSTFLAGS: -D warnings
+  SCCACHE_GHA_ENABLED: "true"
+
 jobs:
-  nightly-clippy:
-    name: Nightly Clippy
+  nightly:
+    name: Nightly
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write    # For Clippy PR annotations
+      checks: write           # For Clippy check status
+    env:
+      SCCACHE_GHA_CACHE_NAME: "nightly"
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
+      - uses: actions/checkout@v6
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: actions/cache@v5
         with:
-          path: ~/.cargo/registry
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/debug/deps
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v5
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
+          components: clippy, rustfmt
 
-      - name: Set up Rust Nightly
-        uses: dtolnay/rust-toolchain@nightly
+      # Formatting check
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      # Tests
+      - name: Run Cargo Tests (default features)
+        run: cargo test
+
+      - name: Run Cargo Tests (all features)
+        run: cargo test --all-features
+
+      - name: Run Cargo Tests (no features)
+        run: cargo test --no-default-features
+
+      # Clippy and post annotations
+      - name: Clippy Check
+        uses: giraffate/clippy-action@v1
+        with:
+          reporter: github-pr-review
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  stable:
+    name: Stable
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+    env:
+      SCCACHE_GHA_CACHE_NAME: "stable"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/debug/deps
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
-      - name: Run Clippy
-        run: cargo clippy -- -D warnings
+      # Formatting check
+      - name: Check formatting
+        run: cargo fmt -- --check
 
-  nightly-test:
-    name: Nightly Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      # Tests
+      - name: Run Cargo Tests (default features)
+        run: cargo test
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v5
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
-
-      - name: Set up Rust Nightly
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Run Cargo Tests
+      - name: Run Cargo Tests (all features)
         run: cargo test --all-features
 
-  stable-clippy:
-    name: Stable Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - name: Run Cargo Tests (no features)
+        run: cargo test --no-default-features
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
+      # Clippy and post annotations
+      - name: Clippy Check
+        uses: giraffate/clippy-action@v1
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v5
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
-
-      - name: Set up Rust Stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Run Clippy
-        run: cargo clippy -- -D warnings
-
-  stable-test:
-    name: Stable Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v5
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
-
-      - name: Set up Rust Stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run Cargo Tests
-        run: cargo test --all-features
+          reporter: github-pr-review
+          github_token: ${{ secrets.GITHUB_TOKEN }}
