@@ -17,18 +17,19 @@ use crate::{WStompError, wstomp_event::WStompEvent};
 /// It multiplexes between:
 /// 1. Receiving WebSocket messages (handling Pings, decoding STOMP)
 /// 2. Receiving STOMP frames from your app (encoding, sending)
-/// 3. Sending ping WebSocket frames every 20 seconds
+/// 3. Sending ping WebSocket frames every `ping_interval`
 pub(crate) async fn stomp_handler_task(
     ws_framed: Framed<BoxedSocket, Codec>,
     mut app_rx: Receiver<Message<ToServer>>,
     stomp_tx: Sender<WStompEvent>,
+    ping_interval: Duration,
 ) {
     let (mut ws_sink, mut ws_stream) = ws_framed.split();
     let mut stomp_codec = ClientCodec;
     let mut read_buf = BytesMut::new();
     let mut encode_buf = BytesMut::new();
 
-    let mut interval = actix_rt::time::interval(Duration::from_secs(20));
+    let mut interval = actix_rt::time::interval(ping_interval);
 
     let mut pings_sent = 0;
     let mut pongs_received = 0;

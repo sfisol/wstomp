@@ -3,6 +3,13 @@
 <!-- markdownlint-disable-next-line first-line-h1 -->
 ## 0.3.0 - Unreleased
 
+### Added
+
+* `WStompConfig::ping_interval` (and `WStompConfigOpts::ping_interval`) sets
+  how often a WebSocket ping is sent; it was fixed at 20 seconds, which is
+  still the default. A connection that goes silent is noticed within two
+  intervals.
+
 ### Fixed
 
 * A connection that ends without a Close frame, or fails with a WebSocket

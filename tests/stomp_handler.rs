@@ -8,11 +8,11 @@ use tokio::{
     net::{TcpListener, TcpStream},
     time::timeout,
 };
-use wstomp::{WStompClient, WStompError, WStompEvent};
+use wstomp::{WStompClient, WStompConfig, WStompError, WStompEvent};
 
 /// Well below the 20 s ping interval, so an event within it comes from the
 /// handler noticing the socket, not from a ping check.
-const EVENT_TIMEOUT: Duration = Duration::from_secs(2);
+const EVENT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Connects a client to a fresh server and returns both ends.
 async fn connect() -> (WStompClient, TcpStream) {
@@ -109,6 +109,24 @@ async fn reports_a_close_frame() {
             event,
             WStompEvent::Error(WStompError::WebsocketClosed(Some(_)))
         ),
+        "{event:?}"
+    );
+}
+
+#[actix_rt::test]
+async fn reports_a_server_that_stops_answering_pings() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+
+    // The server never answers, so the ping sent on connecting is still
+    // without a pong when the next one is due, a second later.
+    let config = WStompConfig::new(url).ping_interval(1);
+    let (_server, client) = tokio::join!(accept(&listener), config.build_and_connect());
+    let mut client = client.unwrap();
+
+    let event = next_event(&mut client).await;
+    assert!(
+        matches!(event, WStompEvent::Error(WStompError::PingTimeout)),
         "{event:?}"
     );
 }

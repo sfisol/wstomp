@@ -42,6 +42,9 @@ pub struct WStompConfigOpts {
     pub additional_headers: Vec<(String, String)>,
     pub client: Option<awc::Client>,
 
+    /// Seconds between WebSocket pings
+    pub ping_interval: u64,
+
     // Reconnection opts in seconds
     pub retry_initial_interval: u64,
     pub retry_max_interval: u64,
@@ -64,6 +67,8 @@ impl Default for WStompConfigOpts {
             ca_certs: Default::default(),
             additional_headers: Default::default(),
             client: Default::default(),
+
+            ping_interval: crate::client::DEFAULT_PING_INTERVAL.as_secs(),
 
             retry_initial_interval: 3,
             retry_max_interval: 60,
@@ -183,6 +188,17 @@ impl<U, R> WStompConfig<U, R> {
     /// instead of letting the library create a default one.
     pub fn client(mut self, client: awc::Client) -> Self {
         self.opts.client = Some(client);
+        self
+    }
+
+    /// Sets how often, in seconds, a WebSocket ping is sent. Defaults to 20.
+    ///
+    /// A ping still without a pong when the next one is due ends the
+    /// connection with [`crate::WStompError::PingTimeout`], so a connection
+    /// that goes silent is noticed within two intervals. Values below 1
+    /// count as 1.
+    pub fn ping_interval(mut self, seconds: u64) -> Self {
+        self.opts.ping_interval = seconds;
         self
     }
 

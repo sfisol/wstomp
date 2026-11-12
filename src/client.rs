@@ -2,9 +2,13 @@ use actix_codec::Framed;
 use actix_http::Uri;
 use async_stomp::{Message, ToServer};
 use awc::{BoxedSocket, error::HttpError, ws::Codec};
+use std::time::Duration;
 use tokio::sync::mpsc::{self, Receiver, Sender, error::SendError};
 
 use crate::{WStompConfig, stomp_handler::stomp_handler_task, wstomp_event::WStompEvent};
+
+/// Ping interval of a client made by [`WStompClient::from_framed`].
+pub(crate) const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(20);
 
 pub type WStompSender = Sender<Message<ToServer>>;
 pub type WStompReceiver = Receiver<WStompEvent>;
@@ -36,6 +40,14 @@ impl WStompClient {
     /// Install a callback via [WStompConfig::on_reconnect] and call
     /// `build_and_connect` to auto-reconnect.
     pub fn from_framed(ws_framed: Framed<BoxedSocket, Codec>) -> Self {
+        Self::from_framed_with_ping_interval(ws_framed, DEFAULT_PING_INTERVAL)
+    }
+
+    /// Like [`Self::from_framed`], with a WebSocket ping sent every `ping_interval`.
+    pub(crate) fn from_framed_with_ping_interval(
+        ws_framed: Framed<BoxedSocket, Codec>,
+        ping_interval: Duration,
+    ) -> Self {
         // Channel for you to send STOMP frames to the handler task
         let (app_tx, app_rx) = mpsc::channel::<Message<ToServer>>(100);
 
@@ -43,7 +55,12 @@ impl WStompClient {
         let (stomp_tx, stomp_rx) = mpsc::channel::<WStompEvent>(100);
 
         // Spawn the task that handles all the low-level logic.
-        actix_rt::spawn(stomp_handler_task(ws_framed, app_rx, stomp_tx));
+        actix_rt::spawn(stomp_handler_task(
+            ws_framed,
+            app_rx,
+            stomp_tx,
+            ping_interval,
+        ));
 
         Self {
             tx: app_tx,
