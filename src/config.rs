@@ -193,10 +193,10 @@ impl<U, R> WStompConfig<U, R> {
 
     /// Sets how often, in seconds, a WebSocket ping is sent. Defaults to 20.
     ///
-    /// A ping still without a pong when the next one is due ends the
-    /// connection with [`crate::WStompError::PingTimeout`], so a connection
-    /// that goes silent is noticed within two intervals. Values below 1
-    /// count as 1.
+    /// When nothing at all, not even a pong, has arrived for two intervals,
+    /// the connection ends with [`crate::WStompError::PingTimeout`], so a
+    /// connection that goes silent is noticed within two to three intervals.
+    /// Values below 1 count as 1.
     pub fn ping_interval(mut self, seconds: u64) -> Self {
         self.opts.ping_interval = seconds;
         self

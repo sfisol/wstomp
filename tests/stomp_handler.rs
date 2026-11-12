@@ -12,7 +12,7 @@ use wstomp::{WStompClient, WStompConfig, WStompError, WStompEvent};
 
 /// Well below the 20 s ping interval, so an event within it comes from the
 /// handler noticing the socket, not from a ping check.
-const EVENT_TIMEOUT: Duration = Duration::from_secs(3);
+const EVENT_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Connects a client to a fresh server and returns both ends.
 async fn connect() -> (WStompClient, TcpStream) {
@@ -118,8 +118,8 @@ async fn reports_a_server_that_stops_answering_pings() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}/", listener.local_addr().unwrap());
 
-    // The server never answers, so the ping sent on connecting is still
-    // without a pong when the next one is due, a second later.
+    // The server never answers, so after two intervals of silence (two
+    // seconds) the connection is taken for dead.
     let config = WStompConfig::new(url).ping_interval(1);
     let (_server, client) = tokio::join!(accept(&listener), config.build_and_connect());
     let mut client = client.unwrap();
@@ -129,4 +129,28 @@ async fn reports_a_server_that_stops_answering_pings() {
         matches!(event, WStompEvent::Error(WStompError::PingTimeout)),
         "{event:?}"
     );
+}
+
+#[actix_rt::test]
+async fn any_frame_from_the_server_counts_as_a_sign_of_life() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+
+    let config = WStompConfig::new(url).ping_interval(1);
+    let (mut server, client) = tokio::join!(accept(&listener), config.build_and_connect());
+    let mut client = client.unwrap();
+
+    // The server never answers a ping, but keeps sending pings of its own.
+    actix_rt::spawn(async move {
+        loop {
+            if server.write_all(&[0x89, 0x00]).await.is_err() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    });
+
+    // Well past the two silent intervals a missing pong alone would allow.
+    let event = timeout(Duration::from_millis(3500), client.recv()).await;
+    assert!(event.is_err(), "{event:?}");
 }

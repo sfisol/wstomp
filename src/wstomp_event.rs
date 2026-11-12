@@ -50,8 +50,17 @@ pub enum WStompError {
     WebsocketDropped,
     /// Can't send ping, probably network problems
     PingFailed(anyhow::Error),
-    /// Haven't received pong from last ping
+    /// Nothing at all, not even a pong, has arrived for two ping intervals
     PingTimeout,
+}
+
+impl WStompError {
+    /// Whether the connection is gone after this error. Every error ends it
+    /// except [`Self::StompEncoding`], which loses only the frame the app tried
+    /// to send.
+    pub fn is_fatal(&self) -> bool {
+        !matches!(self, Self::StompEncoding(_))
+    }
 }
 
 impl std::fmt::Display for WStompConnectError {
@@ -97,3 +106,22 @@ impl std::fmt::Display for WStompError {
 }
 
 impl std::error::Error for WStompError {}
+
+#[cfg(test)]
+mod tests {
+    use super::WStompError;
+
+    #[test]
+    fn only_an_encoding_error_leaves_the_connection_up() {
+        assert!(!WStompError::StompEncoding(anyhow::anyhow!("bad frame")).is_fatal());
+        for err in [
+            WStompError::IncompleteStompFrame,
+            WStompError::StompDecoding(anyhow::anyhow!("bad frame")),
+            WStompError::WebsocketClosed(None),
+            WStompError::WebsocketDropped,
+            WStompError::PingTimeout,
+        ] {
+            assert!(err.is_fatal(), "{err}");
+        }
+    }
+}

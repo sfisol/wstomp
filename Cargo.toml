@@ -33,7 +33,7 @@ bytes = "1"
 futures-util = "0.3"
 log = "0.4"
 pretty-readme = "0.1"
-tokio = { version = "1", features = ["macros"] }
+tokio = { version = "1", features = ["macros", "time"] }
 tokio-util = "0.7"
 
 # rustls
