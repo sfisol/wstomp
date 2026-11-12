@@ -6,6 +6,7 @@ use awc::{
 use tokio::sync::mpsc::error::SendError;
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum WStompConnectError {
     WsClientError(WsClientError),
     ConnectMessageFailed(Box<SendError<Message<ToServer>>>),
@@ -14,6 +15,7 @@ pub enum WStompConnectError {
 
 /// Custom enum combine events in WebSocket and STOMP
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum WStompEvent {
     /// Regular message from STOMP protocol
     Message(Message<FromServer>),
@@ -29,6 +31,7 @@ impl From<WStompError> for WStompEvent {
 
 /// Custom error type to combine WebSocket and STOMP errors.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum WStompError {
     /// Error during receiving websocket frames (from awc)
     WsReceive(WsProtocolError),

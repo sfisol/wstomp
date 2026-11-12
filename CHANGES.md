@@ -12,6 +12,11 @@
 
 ### Changed
 
+* `WStompError`, `WStompEvent`, `WStompConnectError` and `WStompConfigOpts`
+  are `#[non_exhaustive]`, so later versions can add variants and fields
+  without breaking anyone. Match them with a wildcard arm, and start
+  `WStompConfigOpts` from `WStompConfigOpts::default()` (or use the
+  `WStompConfig` builder) instead of a struct literal.
 * Any frame from the server counts as a sign of life, not only a pong, and
   `PingTimeout` comes only after two ping intervals with nothing received
   (it was one interval without a pong). Ticks missed during a stall are

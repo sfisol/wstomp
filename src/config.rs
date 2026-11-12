@@ -27,7 +27,11 @@ pub struct WStompConfig<U, R = NoReconnect> {
     pub(crate) reconnect: R,
 }
 
+/// Options of a [`WStompConfig`]. Start from [`WStompConfigOpts::default`]:
+/// being `#[non_exhaustive]`, it cannot be built with a struct literal outside
+/// this crate.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct WStompConfigOpts {
     pub ssl: bool,
     pub auth_token: Option<AuthTokenFn>,

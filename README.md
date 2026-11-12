@@ -129,6 +129,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            // `WStompEvent` is `#[non_exhaustive]`: later versions may add events
+            _ => {}
         }
     }
 
