@@ -35,8 +35,22 @@ pub(crate) async fn stomp_handler_task(
 
     loop {
         select! {
-            // Received a message from the WebSocket server
-            Some(Ok(ws_frame)) = ws_stream.next() => {
+            // Received a message from the WebSocket server. The end of the
+            // stream and a receive error must be matched here: a pattern that
+            // fails to match only disables the branch until the next loop, and
+            // the loss would surface at the ping check, up to two intervals later.
+            ws_frame = ws_stream.next() => {
+                let ws_frame = match ws_frame {
+                    Some(Ok(ws_frame)) => ws_frame,
+                    Some(Err(e)) => {
+                        let _ = stomp_tx.send(WStompError::WsReceive(e).into()).await;
+                        break;
+                    }
+                    None => {
+                        let _ = stomp_tx.send(WStompError::WebsocketDropped.into()).await;
+                        break;
+                    }
+                };
                 let mut finished_reading = false;
                 match ws_frame {
                     WsFrame::Ping(bytes) => {

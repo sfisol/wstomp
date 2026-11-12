@@ -1,6 +1,15 @@
 <!-- markdownlint-configure-file { "no-duplicate-heading": { "siblings_only": true } } -->
 
 <!-- markdownlint-disable-next-line first-line-h1 -->
+## 0.3.0 - Unreleased
+
+### Fixed
+
+* A connection that ends without a Close frame, or fails with a WebSocket
+  protocol error, is reported at once, as `WStompError::WebsocketDropped` or
+  `WStompError::WsReceive`. Before, both went unnoticed until the ping check
+  (20 to 40 seconds later) reported `PingTimeout`.
+
 ## 0.2.0 - 2026-04-30
 
 ### Added

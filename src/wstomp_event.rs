@@ -45,6 +45,9 @@ pub enum WStompError {
     IncompleteStompFrame,
     /// Websocket closed connection (with reason)
     WebsocketClosed(Option<CloseReason>),
+    /// Websocket connection ended without a Close frame (abnormal closure,
+    /// code 1006), e.g. the server or something in between dropped it
+    WebsocketDropped,
     /// Can't send ping, probably network problems
     PingFailed(anyhow::Error),
     /// Haven't received pong from last ping
@@ -86,6 +89,7 @@ impl std::fmt::Display for WStompError {
                     .map(|r| r.description.clone().unwrap_or_default())
                     .unwrap_or_default()
             ),
+            Self::WebsocketDropped => write!(f, "Websocket dropped without a Close frame"),
             Self::PingFailed(err) => write!(f, "Websocket ping failed: {err}"),
             Self::PingTimeout => write!(f, "Websocket ping timeout"),
         }
