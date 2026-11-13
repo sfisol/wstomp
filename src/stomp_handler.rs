@@ -102,34 +102,46 @@ pub(crate) async fn stomp_handler_task(
                     }
                 };
                 received_since_check = true;
-                match ws_frame {
+                // STOMP frames need not line up with WebSocket messages: one
+                // message may carry several, and a frame may span several
+                // messages or fragments. So every payload goes into one
+                // buffer, and whatever follows the last whole frame waits
+                // there for the rest. Decoding parses the buffer from its
+                // start, so it waits for the end of a message: a frame sent in
+                // many fragments is parsed once, not once per fragment.
+                let message_ended = match ws_frame {
                     WsFrame::Ping(bytes) => {
                         if let Err(e) = ws_sink.send(WsMessage::Pong(bytes)).await {
                             let _ = stomp_tx.send(WStompError::WsSend(e).into()).await;
                             break;
                         }
+                        false
                     }
-                    // STOMP frames need not line up with WebSocket messages:
-                    // one message may carry several, and a frame may span
-                    // several messages or fragments. So every payload goes
-                    // into one buffer, and whatever follows the last whole
-                    // frame waits there for the rest.
                     WsFrame::Text(bytes)
                     | WsFrame::Binary(bytes)
-                    | WsFrame::Continuation(
+                    | WsFrame::Continuation(WsItem::Last(bytes)) => {
+                        read_buf.extend_from_slice(&bytes);
+                        true
+                    }
+                    WsFrame::Continuation(
                         WsItem::FirstText(bytes)
                         | WsItem::FirstBinary(bytes)
-                        | WsItem::Continue(bytes)
-                        | WsItem::Last(bytes),
-                    ) => read_buf.extend_from_slice(&bytes),
+                        | WsItem::Continue(bytes),
+                    ) => {
+                        read_buf.extend_from_slice(&bytes);
+                        false
+                    }
                     WsFrame::Close(reason) => {
                         let _ = stomp_tx.send(WStompEvent::Error(WStompError::WebsocketClosed(reason))).await;
                         break;
                     }
                     // Counted as a sign of life above, like every other frame.
-                    WsFrame::Pong(_) => {}
-                }
+                    WsFrame::Pong(_) => false,
+                };
 
+                if !message_ended {
+                    continue;
+                }
                 loop {
                     match next_stomp_frame(&mut stomp_codec, &mut read_buf) {
                         Ok(Some(stomp_frame)) => {

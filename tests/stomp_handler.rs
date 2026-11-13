@@ -1,7 +1,7 @@
 //! The handler task against a bare WebSocket server, which completes the
 //! handshake and then misbehaves in one particular way.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -286,4 +286,30 @@ async fn takes_a_ping_interval_too_long_to_add_to_a_clock() {
     // The handler task is still there to deliver it.
     send_text(&mut server, &receipt("1")).await;
     expect_receipt(&mut client, "1").await;
+}
+
+#[actix_rt::test]
+async fn parses_a_frame_in_many_fragments_once() {
+    let (mut client, mut server) = connect().await;
+
+    // A 4 MiB frame in 512-byte fragments. Parsed after every fragment, the
+    // buffer would be scanned 8192 times, some 16 GiB in all.
+    let mut frame = b"RECEIPT\nreceipt-id:1\n\n".to_vec();
+    frame.resize(frame.len() + 4 * 1024 * 1024, b'a');
+    frame.push(0);
+    let mut fragments = frame.chunks(512).peekable();
+
+    let started = Instant::now();
+    let mut opcode = 0x1;
+    while let Some(fragment) = fragments.next() {
+        send_frame(&mut server, opcode, fragments.peek().is_none(), fragment).await;
+        opcode = 0x0;
+    }
+    expect_receipt(&mut client, "1").await;
+    // Sending and parsing it once takes well under a second.
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
 }
