@@ -41,6 +41,9 @@
 * End-of-line heart-beats from the server are skipped. One sent alone ended
   the connection as `IncompleteStompFrame`, and two before a frame failed its
   decoding.
+* Dropping the client, or its receiver, closes the connection. It stayed
+  open, pinging, until an event could not be delivered, which on an idle
+  subscription was never.
 * A connection that ends without a Close frame, or fails with a WebSocket
   protocol error, is reported at once, as `WStompError::WebsocketDropped` or
   `WStompError::WsReceive`. Before, both went unnoticed until the ping check

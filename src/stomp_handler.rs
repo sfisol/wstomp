@@ -160,6 +160,11 @@ pub(crate) async fn stomp_handler_task(
                 }
             }
 
+            // The app dropped its receiver, or the whole client: nobody is
+            // left to take the events, and nothing else would end the
+            // connection while the server keeps answering pings.
+            _ = stomp_tx.closed() => break,
+
             _ = interval.tick() => {
                 silent_checks = if received_since_check { 0 } else { silent_checks + 1 };
                 received_since_check = false;

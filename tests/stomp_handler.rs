@@ -289,6 +289,20 @@ async fn takes_a_ping_interval_too_long_to_add_to_a_clock() {
 }
 
 #[actix_rt::test]
+async fn closes_the_connection_when_the_client_is_dropped() {
+    let (client, mut server) = connect().await;
+
+    drop(client);
+
+    let closed = timeout(EVENT_TIMEOUT, async {
+        let mut buf = [0; 64];
+        while matches!(server.read(&mut buf).await, Ok(read) if read > 0) {}
+    })
+    .await;
+    assert!(closed.is_ok(), "the connection is still open");
+}
+
+#[actix_rt::test]
 async fn parses_a_frame_in_many_fragments_once() {
     let (mut client, mut server) = connect().await;
 
