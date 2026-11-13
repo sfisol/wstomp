@@ -275,7 +275,14 @@ async fn inner_connect(
         headers.extend(headers_for_token(auth_token));
     }
 
-    let stomp_client = client.ws::<Uri>(uri).stomp_connect().await?;
+    let (_response, framed_connection) = client
+        .ws::<Uri>(uri)
+        .connect()
+        .await
+        .map_err(WStompConnectError::WsClientError)?;
+    let ping_interval = Duration::from_secs(opts.ping_interval.max(1));
+    let stomp_client =
+        WStompClient::from_framed_with_ping_interval(framed_connection, ping_interval);
 
     let connect_msg = Connector::builder()
         .server(authority.clone())

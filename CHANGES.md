@@ -1,6 +1,31 @@
 <!-- markdownlint-configure-file { "no-duplicate-heading": { "siblings_only": true } } -->
 
 <!-- markdownlint-disable-next-line first-line-h1 -->
+## 0.3.0 - Unreleased
+
+### Added
+
+* `WStompConfig::ping_interval` (and `WStompConfigOpts::ping_interval`) sets
+  how often a WebSocket ping is sent; it was fixed at 20 seconds, which is
+  still the default.
+* `WStompError::is_fatal`, whether the connection is gone after the error.
+
+### Changed
+
+* Any frame from the server counts as a sign of life, not only a pong, and
+  `PingTimeout` comes only after two ping intervals with nothing received
+  (it was one interval without a pong). Ticks missed during a stall are
+  delayed, not fired back to back.
+
+### Fixed
+
+* A connection that ends without a Close frame, or fails with a WebSocket
+  protocol error, is reported at once, as `WStompError::WebsocketDropped` or
+  `WStompError::WsReceive`. Before, both went unnoticed until the ping check
+  (20 to 40 seconds later) reported `PingTimeout`.
+* A frame that fails to encode no longer leaves bytes behind to be sent with
+  the next one.
+
 ## 0.2.0 - 2026-04-30
 
 ### Added

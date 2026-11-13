@@ -239,8 +239,11 @@ Once connected, the `WStompClient::rx` channel produces [`WStompEvent`] items, i
   * `StompDecoding` / `StompEncoding`: A STOMP frame decoding/encoding error.
   * `IncompleteStompFrame`: A warning indicating that data was received but was not enough to form a complete STOMP frame. The client has dropped this data. This is often safe to ignore or log as a warning.
   * `WebsocketClosed`: WebSocket was closed, possibly a reason from `awc` library is inside.
+  * `WebsocketDropped`: The connection ended without a WebSocket Close frame (abnormal closure, code 1006).
   * `PingFailed`: Couldn't send ping through the WebSocket protocol.
-  * `PingTimeout`: There was no pong for last ping.
+  * `PingTimeout`: Nothing, not even a pong, arrived for two ping intervals. Pings go every 20 seconds, or as set with `WStompConfig::ping_interval`.
+
+  `WStompError::is_fatal` tells whether the connection is gone after the error: every error ends it except `StompEncoding`.
 
 ## License
 
