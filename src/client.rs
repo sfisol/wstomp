@@ -10,6 +10,10 @@ use crate::{WStompConfig, stomp_handler::stomp_handler_task, wstomp_event::WStom
 /// Ping interval of a client made by [`WStompClient::from_framed`].
 pub(crate) const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(20);
 
+/// The longest ping interval taken. Tokio panics on a tick time past what its
+/// clock can hold, and a day is long enough for anyone who wants few pings.
+pub(crate) const MAX_PING_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+
 pub type WStompSender = Sender<Message<ToServer>>;
 pub type WStompReceiver = Receiver<WStompEvent>;
 

@@ -280,7 +280,10 @@ async fn inner_connect(
         .connect()
         .await
         .map_err(WStompConnectError::WsClientError)?;
-    let ping_interval = Duration::from_secs(opts.ping_interval.max(1));
+    let ping_interval = Duration::from_secs(
+        opts.ping_interval
+            .clamp(1, crate::client::MAX_PING_INTERVAL.as_secs()),
+    );
     let stomp_client =
         WStompClient::from_framed_with_ping_interval(framed_connection, ping_interval);
 

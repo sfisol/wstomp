@@ -7,7 +7,7 @@
 
 * `WStompConfig::ping_interval` (and `WStompConfigOpts::ping_interval`) sets
   how often a WebSocket ping is sent; it was fixed at 20 seconds, which is
-  still the default.
+  still the default. It takes 1 second to a day.
 * `WStompError::is_fatal`, whether the connection is gone after the error.
 
 ### Changed

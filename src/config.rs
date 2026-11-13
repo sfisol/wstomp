@@ -46,7 +46,8 @@ pub struct WStompConfigOpts {
     pub additional_headers: Vec<(String, String)>,
     pub client: Option<awc::Client>,
 
-    /// Seconds between WebSocket pings
+    /// Seconds between WebSocket pings. Values below 1 count as 1, and values
+    /// above a day as a day.
     pub ping_interval: u64,
 
     // Reconnection opts in seconds
@@ -200,7 +201,7 @@ impl<U, R> WStompConfig<U, R> {
     /// When nothing at all, not even a pong, has arrived for two intervals,
     /// the connection ends with [`crate::WStompError::PingTimeout`], so a
     /// connection that goes silent is noticed within two to three intervals.
-    /// Values below 1 count as 1.
+    /// Values below 1 count as 1, and values above a day as a day.
     pub fn ping_interval(mut self, seconds: u64) -> Self {
         self.opts.ping_interval = seconds;
         self

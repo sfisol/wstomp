@@ -273,3 +273,17 @@ async fn an_app_that_falls_behind_is_not_taken_for_silence() {
     send_text(&mut server, &receipt("150")).await;
     expect_receipt(&mut client, "150").await;
 }
+
+#[actix_rt::test]
+async fn takes_a_ping_interval_too_long_to_add_to_a_clock() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+
+    let config = WStompConfig::new(url).ping_interval(u64::MAX);
+    let (mut server, client) = tokio::join!(accept(&listener), config.build_and_connect());
+    let mut client = client.unwrap();
+
+    // The handler task is still there to deliver it.
+    send_text(&mut server, &receipt("1")).await;
+    expect_receipt(&mut client, "1").await;
+}
