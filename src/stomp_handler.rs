@@ -8,15 +8,15 @@ use std::time::Duration;
 use tokio::{
     select,
     sync::mpsc::{Receiver, Sender},
-    time::{Instant, MissedTickBehavior},
+    time::MissedTickBehavior,
 };
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{WStompError, wstomp_event::WStompEvent};
 
-/// How many ping intervals may pass with nothing at all received before the
-/// connection counts as dead. Two, so that one late pong is not taken for a
-/// dead connection.
+/// How many ping checks in a row may find nothing at all received since the
+/// check before, before the connection counts as dead. Two, so that one late
+/// pong is not taken for a dead connection.
 const SILENT_INTERVALS: u32 = 2;
 
 /// How large the start of a STOMP frame may grow while the rest of it is
@@ -29,7 +29,8 @@ const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 /// 1. Receiving WebSocket messages (handling Pings, decoding STOMP)
 /// 2. Receiving STOMP frames from your app (encoding, sending)
 /// 3. Sending ping WebSocket frames every `ping_interval`, and ending the
-///    connection when nothing at all has arrived for [`SILENT_INTERVALS`] of them
+///    connection when [`SILENT_INTERVALS`] checks in a row find nothing at all
+///    received since the check before
 pub(crate) async fn stomp_handler_task(
     ws_framed: Framed<BoxedSocket, Codec>,
     mut app_rx: Receiver<Message<ToServer>>,
@@ -47,12 +48,43 @@ pub(crate) async fn stomp_handler_task(
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     // Any frame is a sign of life, not only a pong: a busy server may answer
-    // pings late, but it is plainly still there.
-    let silence_limit = ping_interval * SILENT_INTERVALS;
-    let mut last_received = Instant::now();
+    // pings late, but it is plainly still there. Silence is counted in ping
+    // checks, not in time, so a stall of this task (e.g. waiting for an app
+    // that stopped reading its events) is not taken for silence: a frame
+    // received before the stall still counts at the check after it.
+    // The connection has just been made, which counts as a sign of life.
+    let mut received_since_check = true;
+    let mut silent_checks = 0;
 
     'connection: loop {
         select! {
+            // Branches are tried in this order. The app's frames come first,
+            // so a flood from the server cannot hold back a SUBSCRIBE, ACK or
+            // DISCONNECT. The ping check comes last, so frames that arrived
+            // while this task was busy are read before silence is checked.
+            biased;
+
+            // Received a STOMP frame from the application (client) to send
+            Some(stomp_frame_to_send) = app_rx.recv() => {
+                // Encode the STOMP frame
+                match stomp_codec.encode(stomp_frame_to_send, &mut encode_buf) {
+                    Ok(_) => {
+                        // Send it as a WebSocket Binary message
+                        if let Err(e) = ws_sink.send(WsMessage::Binary(encode_buf.clone().freeze())).await {
+                            let _ = stomp_tx.send(WStompError::WsReceive(e).into()).await;
+                            break;
+                        }
+                        encode_buf.clear();
+                    }
+                    Err(e) => {
+                        // STOMP encoding error. Only this frame is lost, so the
+                        // connection stays up; nothing of it may go out with the next.
+                        encode_buf.clear();
+                        let _ = stomp_tx.send(WStompError::StompEncoding(e).into()).await;
+                    }
+                }
+            }
+
             // Received a message from the WebSocket server. The end of the
             // stream and a receive error must be matched here: a pattern that
             // fails to match only disables the branch until the next loop, and
@@ -69,7 +101,7 @@ pub(crate) async fn stomp_handler_task(
                         break;
                     }
                 };
-                last_received = Instant::now();
+                received_since_check = true;
                 match ws_frame {
                     WsFrame::Ping(bytes) => {
                         if let Err(e) = ws_sink.send(WsMessage::Pong(bytes)).await {
@@ -116,29 +148,10 @@ pub(crate) async fn stomp_handler_task(
                 }
             }
 
-            // Received a STOMP frame from the application (client) to send
-            Some(stomp_frame_to_send) = app_rx.recv() => {
-                // Encode the STOMP frame
-                match stomp_codec.encode(stomp_frame_to_send, &mut encode_buf) {
-                    Ok(_) => {
-                        // Send it as a WebSocket Binary message
-                        if let Err(e) = ws_sink.send(WsMessage::Binary(encode_buf.clone().freeze())).await {
-                            let _ = stomp_tx.send(WStompError::WsReceive(e).into()).await;
-                            break;
-                        }
-                        encode_buf.clear();
-                    }
-                    Err(e) => {
-                        // STOMP encoding error. Only this frame is lost, so the
-                        // connection stays up; nothing of it may go out with the next.
-                        encode_buf.clear();
-                        let _ = stomp_tx.send(WStompError::StompEncoding(e).into()).await;
-                    }
-                }
-            }
-
             _ = interval.tick() => {
-                if last_received.elapsed() >= silence_limit {
+                silent_checks = if received_since_check { 0 } else { silent_checks + 1 };
+                received_since_check = false;
+                if silent_checks >= SILENT_INTERVALS {
                     let _ = stomp_tx.send(WStompEvent::Error(WStompError::PingTimeout)).await;
                     break;
                 }
@@ -150,9 +163,6 @@ pub(crate) async fn stomp_handler_task(
                     }
                 }
             }
-
-            // 3. Both streams closed, exit loop
-            else => break,
         }
     }
 }

@@ -18,9 +18,12 @@
   `WStompConfigOpts` from `WStompConfigOpts::default()` (or use the
   `WStompConfig` builder) instead of a struct literal.
 * Any frame from the server counts as a sign of life, not only a pong, and
-  `PingTimeout` comes only after two ping intervals with nothing received
-  (it was one interval without a pong). Ticks missed during a stall are
-  delayed, not fired back to back.
+  `PingTimeout` comes only when two ping checks in a row find nothing
+  received since the check before (it was one interval without a pong).
+  Silence is counted in checks, not in time, and frames already waiting are
+  read before a check, so an app that stops reading its events for a while
+  is not taken for a silent server. Ticks missed during a stall are delayed,
+  not fired back to back.
 * A STOMP frame that grows past 16 MiB before it ends (it may now span
   several WebSocket messages) ends the connection as `StompDecoding`.
 

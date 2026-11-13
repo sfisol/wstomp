@@ -73,11 +73,15 @@ async fn next_event(client: &mut WStompClient) -> WStompEvent {
 /// Sends `payload` as one unmasked WebSocket frame with `opcode`, the last
 /// fragment of its message when `fin`.
 async fn send_frame(server: &mut TcpStream, opcode: u8, fin: bool, payload: &[u8]) {
-    // A 7-bit length is enough for these tests.
-    let len = u8::try_from(payload.len()).unwrap();
-    assert!(len < 126, "payload too long for a 7-bit length");
-
-    let mut frame = vec![if fin { 0x80 | opcode } else { opcode }, len];
+    let mut frame = vec![if fin { 0x80 | opcode } else { opcode }];
+    match u8::try_from(payload.len()) {
+        Ok(len) if len < 126 => frame.push(len),
+        // A 16-bit length is enough for these tests.
+        _ => {
+            frame.push(126);
+            frame.extend_from_slice(&u16::try_from(payload.len()).unwrap().to_be_bytes());
+        }
+    }
     frame.extend_from_slice(payload);
     server.write_all(&frame).await.unwrap();
 }
@@ -245,4 +249,27 @@ async fn skips_heart_beats_between_frames() {
     expect_receipt(&mut client, "1").await;
     expect_receipt(&mut client, "2").await;
     expect_receipt(&mut client, "3").await;
+}
+
+#[actix_rt::test]
+async fn an_app_that_falls_behind_is_not_taken_for_silence() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+
+    let config = WStompConfig::new(url).ping_interval(1);
+    let (mut server, client) = tokio::join!(accept(&listener), config.build_and_connect());
+    let mut client = client.unwrap();
+
+    // More frames than the event channel holds, so the handler waits to
+    // deliver one while the app sleeps through more than two ping intervals.
+    let receipts: String = (0..150).map(|id| receipt(&id.to_string())).collect();
+    send_text(&mut server, &receipts).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    for id in 0..150 {
+        expect_receipt(&mut client, &id.to_string()).await;
+    }
+    // The connection is still up.
+    send_text(&mut server, &receipt("150")).await;
+    expect_receipt(&mut client, "150").await;
 }
