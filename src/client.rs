@@ -76,8 +76,13 @@ impl WStompClient {
         self.rx.recv().await
     }
 
-    pub async fn send(&self, value: Message<ToServer>) -> Result<(), SendError<Message<ToServer>>> {
-        self.tx.send(value).await
+    /// Sends a STOMP frame to the server. The error, boxed to keep the
+    /// `Result` small, gives the frame back when the connection is gone.
+    pub async fn send(
+        &self,
+        value: Message<ToServer>,
+    ) -> Result<(), Box<SendError<Message<ToServer>>>> {
+        self.tx.send(value).await.map_err(Box::new)
     }
 
     pub fn into_split(self) -> (WStompReceiver, WStompSender) {

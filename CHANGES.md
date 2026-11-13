@@ -17,6 +17,8 @@
   without breaking anyone. Match them with a wildcard arm, and start
   `WStompConfigOpts` from `WStompConfigOpts::default()` (or use the
   `WStompConfig` builder) instead of a struct literal.
+* `WStompClient::send` returns its `SendError` boxed, which keeps the
+  `Result` small.
 * Any frame from the server counts as a sign of life, not only a pong, and
   `PingTimeout` comes only when two ping checks in a row find nothing
   received since the check before (it was one interval without a pong).

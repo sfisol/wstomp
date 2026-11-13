@@ -305,7 +305,6 @@ async fn inner_connect(
     stomp_client
         .send(connect_msg)
         .await
-        .map_err(Box::new)
         .map_err(WStompConnectError::ConnectMessageFailed)?;
 
     Ok(stomp_client)
