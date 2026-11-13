@@ -50,6 +50,8 @@
   (20 to 40 seconds later) reported `PingTimeout`.
 * A frame that fails to encode no longer leaves bytes behind to be sent with
   the next one.
+* A frame that fails to go out is reported as `WStompError::WsSend`, not
+  `WsReceive`.
 
 ## 0.2.0 - 2026-04-30
 

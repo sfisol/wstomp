@@ -69,12 +69,12 @@ pub(crate) async fn stomp_handler_task(
                 // Encode the STOMP frame
                 match stomp_codec.encode(stomp_frame_to_send, &mut encode_buf) {
                     Ok(_) => {
-                        // Send it as a WebSocket Binary message
-                        if let Err(e) = ws_sink.send(WsMessage::Binary(encode_buf.clone().freeze())).await {
-                            let _ = stomp_tx.send(WStompError::WsReceive(e).into()).await;
+                        // Send it as a WebSocket Binary message. `split` takes
+                        // the bytes out of the buffer without copying them.
+                        if let Err(e) = ws_sink.send(WsMessage::Binary(encode_buf.split().freeze())).await {
+                            let _ = stomp_tx.send(WStompError::WsSend(e).into()).await;
                             break;
                         }
-                        encode_buf.clear();
                     }
                     Err(e) => {
                         // STOMP encoding error. Only this frame is lost, so the

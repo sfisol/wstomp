@@ -10,7 +10,7 @@ use tokio::{
 };
 use wstomp::{
     WStompClient, WStompConfig, WStompError, WStompEvent,
-    stomp::{FromServer, Message},
+    stomp::{FromServer, Message, client::Subscriber},
 };
 
 /// Well below the 20 s ping interval, so an event within it comes from the
@@ -325,5 +325,34 @@ async fn parses_a_frame_in_many_fragments_once() {
         started.elapsed() < Duration::from_secs(2),
         "{:?}",
         started.elapsed()
+    );
+}
+
+#[actix_rt::test]
+async fn reports_a_frame_that_cannot_be_sent() {
+    let (client, mut server) = connect().await;
+    let subscribe = || {
+        Subscriber::builder()
+            .destination("/queue/a")
+            .id("1")
+            .subscribe()
+    };
+
+    // The server closes with the first frame unread, which resets the
+    // connection, so the second one cannot go out.
+    client.send(subscribe()).await.unwrap();
+    server.peek(&mut [0]).await.unwrap();
+    drop(server);
+    // The test and the handler share one thread: blocking it lets the reset
+    // arrive before the handler runs again, and the handler then takes the
+    // app's frame before anything else.
+    std::thread::sleep(Duration::from_millis(100));
+    client.send(subscribe()).await.unwrap();
+
+    let mut client = client;
+    let event = next_event(&mut client).await;
+    assert!(
+        matches!(event, WStompEvent::Error(WStompError::WsSend(_))),
+        "{event:?}"
     );
 }
