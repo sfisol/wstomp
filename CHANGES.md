@@ -21,9 +21,23 @@
   `PingTimeout` comes only after two ping intervals with nothing received
   (it was one interval without a pong). Ticks missed during a stall are
   delayed, not fired back to back.
+* A STOMP frame that grows past 16 MiB before it ends (it may now span
+  several WebSocket messages) ends the connection as `StompDecoding`.
+
+### Removed
+
+* `WStompError::IncompleteStompFrame`: the start of a frame now waits for the
+  rest of it in the next WebSocket message, so it is never reported.
 
 ### Fixed
 
+* Every STOMP frame in a WebSocket message is delivered. Only the first was,
+  and the rest were dropped without a word.
+* A STOMP frame split across WebSocket messages is put back together. It was
+  dropped as `IncompleteStompFrame`, which ended the connection.
+* End-of-line heart-beats from the server are skipped. One sent alone ended
+  the connection as `IncompleteStompFrame`, and two before a frame failed its
+  decoding.
 * A connection that ends without a Close frame, or fails with a WebSocket
   protocol error, is reported at once, as `WStompError::WebsocketDropped` or
   `WStompError::WsReceive`. Before, both went unnoticed until the ping check

@@ -37,15 +37,11 @@ pub enum WStompError {
     WsReceive(WsProtocolError),
     /// Error during sending websocket frames (from awc)
     WsSend(WsProtocolError),
-    /// Error while decoding (receiving) STOMP message (from async-stomp)
+    /// Error while decoding (receiving) STOMP message (from async-stomp), or a
+    /// frame that grows past 16 MiB before it ends
     StompDecoding(anyhow::Error),
     /// Error while encoding (sending) STOMP message (from async-stomp)
     StompEncoding(anyhow::Error),
-    /// Incomplete STOMP frame received through WebSocket
-    ///
-    /// This is a warning that WebSocket protocol finished receiving data, but STOMP protocol
-    /// doesn't recognize it as a full STOMP message. Should not happen, can be ignored in most cases.
-    IncompleteStompFrame,
     /// Websocket closed connection (with reason)
     WebsocketClosed(Option<CloseReason>),
     /// Websocket connection ended without a Close frame (abnormal closure,
@@ -90,9 +86,6 @@ impl std::fmt::Display for WStompError {
             Self::WsSend(err) => write!(f, "WebSocket send error: {}", err),
             Self::StompDecoding(err) => write!(f, "STOMP decoding error: {}", err),
             Self::StompEncoding(err) => write!(f, "STOMP encoding error: {}", err),
-            Self::IncompleteStompFrame => {
-                write!(f, "STOMP decoding warning: Dropped incomplete frame")
-            }
             Self::WebsocketClosed(reason) => write!(
                 f,
                 "Websocket closed {}",
@@ -118,7 +111,6 @@ mod tests {
     fn only_an_encoding_error_leaves_the_connection_up() {
         assert!(!WStompError::StompEncoding(anyhow::anyhow!("bad frame")).is_fatal());
         for err in [
-            WStompError::IncompleteStompFrame,
             WStompError::StompDecoding(anyhow::anyhow!("bad frame")),
             WStompError::WebsocketClosed(None),
             WStompError::WebsocketDropped,

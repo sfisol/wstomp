@@ -8,7 +8,10 @@ use tokio::{
     net::{TcpListener, TcpStream},
     time::timeout,
 };
-use wstomp::{WStompClient, WStompConfig, WStompError, WStompEvent};
+use wstomp::{
+    WStompClient, WStompConfig, WStompError, WStompEvent,
+    stomp::{FromServer, Message},
+};
 
 /// Well below the 20 s ping interval, so an event within it comes from the
 /// handler noticing the socket, not from a ping check.
@@ -65,6 +68,39 @@ async fn next_event(client: &mut WStompClient) -> WStompEvent {
         .await
         .expect("no event before the timeout")
         .expect("event channel closed")
+}
+
+/// Sends `payload` as one unmasked WebSocket frame with `opcode`, the last
+/// fragment of its message when `fin`.
+async fn send_frame(server: &mut TcpStream, opcode: u8, fin: bool, payload: &[u8]) {
+    // A 7-bit length is enough for these tests.
+    let len = u8::try_from(payload.len()).unwrap();
+    assert!(len < 126, "payload too long for a 7-bit length");
+
+    let mut frame = vec![if fin { 0x80 | opcode } else { opcode }, len];
+    frame.extend_from_slice(payload);
+    server.write_all(&frame).await.unwrap();
+}
+
+/// Sends `payload` as one unfragmented text message.
+async fn send_text(server: &mut TcpStream, payload: &str) {
+    send_frame(server, 0x1, true, payload.as_bytes()).await;
+}
+
+fn receipt(id: &str) -> String {
+    format!("RECEIPT\nreceipt-id:{id}\n\n\0")
+}
+
+async fn expect_receipt(client: &mut WStompClient, id: &str) {
+    let event = next_event(client).await;
+    assert!(
+        matches!(
+            &event,
+            WStompEvent::Message(Message { content: FromServer::Receipt { receipt_id }, .. })
+                if receipt_id == id
+        ),
+        "expected receipt {id}, got {event:?}"
+    );
 }
 
 #[actix_rt::test]
@@ -153,4 +189,60 @@ async fn any_frame_from_the_server_counts_as_a_sign_of_life() {
     // Well past the two silent intervals a missing pong alone would allow.
     let event = timeout(Duration::from_millis(3500), client.recv()).await;
     assert!(event.is_err(), "{event:?}");
+}
+
+#[actix_rt::test]
+async fn delivers_every_frame_of_a_message() {
+    let (mut client, mut server) = connect().await;
+
+    send_text(&mut server, &format!("{}{}", receipt("1"), receipt("2"))).await;
+
+    expect_receipt(&mut client, "1").await;
+    expect_receipt(&mut client, "2").await;
+}
+
+#[actix_rt::test]
+async fn puts_together_a_frame_split_across_messages() {
+    let (mut client, mut server) = connect().await;
+
+    let (first, second) = (receipt("1"), receipt("2"));
+    let (first_start, first_rest) = first.split_at(10);
+    let (second_start, second_rest) = second.split_at(12);
+    send_text(&mut server, first_start).await;
+    send_text(&mut server, &format!("{first_rest}{second_start}")).await;
+    send_text(&mut server, second_rest).await;
+
+    expect_receipt(&mut client, "1").await;
+    expect_receipt(&mut client, "2").await;
+}
+
+#[actix_rt::test]
+async fn puts_together_a_frame_split_across_fragments() {
+    let (mut client, mut server) = connect().await;
+
+    let frame = receipt("1");
+    let (start, rest) = frame.split_at(10);
+    // A text message in two fragments: a text frame without FIN, then a
+    // continuation frame with it.
+    send_frame(&mut server, 0x1, false, start.as_bytes()).await;
+    send_frame(&mut server, 0x0, true, rest.as_bytes()).await;
+
+    expect_receipt(&mut client, "1").await;
+}
+
+#[actix_rt::test]
+async fn skips_heart_beats_between_frames() {
+    let (mut client, mut server) = connect().await;
+
+    send_text(&mut server, "\n").await;
+    send_text(&mut server, &format!("{}\n", receipt("1"))).await;
+    send_text(&mut server, "\r\n").await;
+    send_text(&mut server, &format!("\n\n{}", receipt("2"))).await;
+    send_text(&mut server, "\n").await;
+    send_text(&mut server, &receipt("3")).await;
+
+    // Events arrive in order, so no error came in between.
+    expect_receipt(&mut client, "1").await;
+    expect_receipt(&mut client, "2").await;
+    expect_receipt(&mut client, "3").await;
 }

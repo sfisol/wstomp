@@ -14,7 +14,7 @@ This crate provides a simple client to connect to a STOMP-enabled WebSocket serv
 ## Features
 
 * Connects to STOMP servers over WebSocket using [`awc`](https://crates.io/crates/awc).
-* Handles all STOMP protocol encoding and decoding via [`async-stomp`](https://crates.io/crates/async-stomp).
+* Handles all STOMP protocol encoding and decoding via [`async-stomp`](https://crates.io/crates/async-stomp), whether a WebSocket message carries several STOMP frames or a frame spans several messages, and skips the server's STOMP heart-beats.
 * Manages WebSocket ping/pong heartbeats automatically in a background task.
 * Provides a simple `tokio::mpsc` channel-based API ([`WStompClient`]) for sending and receiving STOMP frames.
 * Connection helpers for various authentication methods:
@@ -49,7 +49,7 @@ Here is a basic example of connecting, subscribing to a topic and receiving mess
 use wstomp::{
     connect_with_pass,
     stomp::{FromServer, Message, ToServer, client::Subscriber},
-    WStompEvent, WStompError,
+    WStompEvent,
 };
 
 #[actix_rt::main]
@@ -111,22 +111,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         break;
                     }
-                    // IncompleteStompFrame is a warning, not a hard error
                     other => println!("Received other frame: {:?}", other),
                 }
             }
             // Handle errors
             WStompEvent::Error(err) => {
-                match err {
-                    WStompError::IncompleteStompFrame => {
-                        // This is a warning, you can choose to ignore it or log it
-                        eprintln!("Warning: Dropped incomplete STOMP frame.");
-                    }
-                    other_err => {
-                        // These are more serious errors
-                        eprintln!("Connection error: {}", other_err);
-                        break;
-                    }
+                eprintln!("Connection error: {}", err);
+                if err.is_fatal() {
+                    break;
                 }
             }
             // `WStompEvent` is `#[non_exhaustive]`: later versions may add events
@@ -238,8 +230,7 @@ Once connected, the `WStompClient::rx` channel produces [`WStompEvent`] items, i
 
 * **`WStompError`**: An error that occurs *after* a successful connection.
   * `WsReceive` / `WsSend`: A WebSocket protocol error.
-  * `StompDecoding` / `StompEncoding`: A STOMP frame decoding/encoding error.
-  * `IncompleteStompFrame`: A warning indicating that data was received but was not enough to form a complete STOMP frame. The client has dropped this data. This is often safe to ignore or log as a warning.
+  * `StompDecoding` / `StompEncoding`: A STOMP frame decoding/encoding error. A frame that grows past 16 MiB before it ends is a decoding error too.
   * `WebsocketClosed`: WebSocket was closed, possibly a reason from `awc` library is inside.
   * `WebsocketDropped`: The connection ended without a WebSocket Close frame (abnormal closure, code 1006).
   * `PingFailed`: Couldn't send ping through the WebSocket protocol.

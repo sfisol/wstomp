@@ -1,8 +1,8 @@
 use actix_codec::Framed;
 use actix_http::ws::{Codec, Frame as WsFrame, Item as WsItem, Message as WsMessage};
-use async_stomp::{Message, ToServer, client::ClientCodec};
+use async_stomp::{FromServer, Message, ToServer, client::ClientCodec};
 use awc::BoxedSocket;
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio::{
@@ -18,6 +18,11 @@ use crate::{WStompError, wstomp_event::WStompEvent};
 /// connection counts as dead. Two, so that one late pong is not taken for a
 /// dead connection.
 const SILENT_INTERVALS: u32 = 2;
+
+/// How large the start of a STOMP frame may grow while the rest of it is
+/// awaited. Far above any real frame: it only stops a stream that never ends
+/// its frame from growing the buffer without limit.
+const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
 /// This is the internal task that manages the connection.
 /// It multiplexes between:
@@ -46,7 +51,7 @@ pub(crate) async fn stomp_handler_task(
     let silence_limit = ping_interval * SILENT_INTERVALS;
     let mut last_received = Instant::now();
 
-    loop {
+    'connection: loop {
         select! {
             // Received a message from the WebSocket server. The end of the
             // stream and a receive error must be matched here: a pattern that
@@ -65,7 +70,6 @@ pub(crate) async fn stomp_handler_task(
                     }
                 };
                 last_received = Instant::now();
-                let mut finished_reading = false;
                 match ws_frame {
                     WsFrame::Ping(bytes) => {
                         if let Err(e) = ws_sink.send(WsMessage::Pong(bytes)).await {
@@ -73,61 +77,40 @@ pub(crate) async fn stomp_handler_task(
                             break;
                         }
                     }
-                    WsFrame::Text(text) => {
-                        read_buf.extend_from_slice(&text);
-                        finished_reading = true;
-                    }
-                    WsFrame::Binary(bytes) => {
-                        read_buf.extend_from_slice(&bytes);
-                        finished_reading = true;
-                    }
+                    // STOMP frames need not line up with WebSocket messages:
+                    // one message may carry several, and a frame may span
+                    // several messages or fragments. So every payload goes
+                    // into one buffer, and whatever follows the last whole
+                    // frame waits there for the rest.
+                    WsFrame::Text(bytes)
+                    | WsFrame::Binary(bytes)
+                    | WsFrame::Continuation(
+                        WsItem::FirstText(bytes)
+                        | WsItem::FirstBinary(bytes)
+                        | WsItem::Continue(bytes)
+                        | WsItem::Last(bytes),
+                    ) => read_buf.extend_from_slice(&bytes),
                     WsFrame::Close(reason) => {
                         let _ = stomp_tx.send(WStompEvent::Error(WStompError::WebsocketClosed(reason))).await;
                         break;
                     }
                     // Counted as a sign of life above, like every other frame.
                     WsFrame::Pong(_) => {}
-                    WsFrame::Continuation(item) => {
-                        match item {
-                            WsItem::FirstText(bytes) => {
-                                read_buf.clear();
-                                read_buf.extend_from_slice(&bytes);
-                            },
-                            WsItem::FirstBinary(bytes) => {
-                                read_buf.clear();
-                                read_buf.extend_from_slice(&bytes);
-                            },
-                            WsItem::Continue(bytes) => {
-                                read_buf.extend_from_slice(&bytes);
-                            },
-                            WsItem::Last(bytes) => {
-                                read_buf.extend_from_slice(&bytes);
-                                finished_reading = true;
-                            },
-                        }
-                    }
                 }
 
-                // After receiving data, try to decode STOMP frames
-                if finished_reading {
-                    match stomp_codec.decode(&mut read_buf) {
+                loop {
+                    match next_stomp_frame(&mut stomp_codec, &mut read_buf) {
                         Ok(Some(stomp_frame)) => {
-                            read_buf.clear();
-                            // Decoded a STOMP frame, send it to the app
                             if stomp_tx.send(WStompEvent::Message(stomp_frame)).await.is_err() {
                                 // Receiver was dropped, app is gone.
-                                break;
+                                break 'connection;
                             }
                         }
-                        Ok(None) => {
-                            // Not enough data for a full STOMP frame, wait for more.
-                            let _ = stomp_tx.send(WStompError::IncompleteStompFrame.into()).await;
-                            break;
-                        }
+                        // Nothing left, or only the start of a frame.
+                        Ok(None) => break,
                         Err(e) => {
-                            // STOMP decoding error
                             let _ = stomp_tx.send(WStompError::StompDecoding(e).into()).await;
-                            break;
+                            break 'connection;
                         }
                     }
                 }
@@ -171,5 +154,53 @@ pub(crate) async fn stomp_handler_task(
             // 3. Both streams closed, exit loop
             else => break,
         }
+    }
+}
+
+/// Takes the next whole STOMP frame off the front of `buf`, skipping the
+/// end-of-line heart-beats a server sends between frames. `Ok(None)` means
+/// `buf` holds nothing more, or only the start of a frame.
+fn next_stomp_frame(
+    codec: &mut ClientCodec,
+    buf: &mut BytesMut,
+) -> anyhow::Result<Option<Message<FromServer>>> {
+    let heart_beats = buf
+        .iter()
+        .take_while(|byte| matches!(byte, b'\n' | b'\r'))
+        .count();
+    buf.advance(heart_beats);
+
+    let frame = codec.decode(buf)?;
+    if frame.is_none() && buf.len() > MAX_FRAME_SIZE {
+        anyhow::bail!("STOMP frame larger than {MAX_FRAME_SIZE} bytes");
+    }
+    Ok(frame)
+}
+
+#[cfg(test)]
+mod tests {
+    use async_stomp::client::ClientCodec;
+    use bytes::BytesMut;
+
+    use super::{MAX_FRAME_SIZE, next_stomp_frame};
+
+    #[test]
+    fn a_frame_that_outgrows_the_limit_is_an_error() {
+        let mut buf = BytesMut::from(&b"MESSAGE\ndestination:/a\n\n"[..]);
+        buf.resize(MAX_FRAME_SIZE + 1, b'a');
+
+        assert!(next_stomp_frame(&mut ClientCodec, &mut buf).is_err());
+    }
+
+    #[test]
+    fn heart_beats_alone_leave_nothing_behind() {
+        let mut buf = BytesMut::from(&b"\n\r\n\n"[..]);
+
+        assert!(
+            next_stomp_frame(&mut ClientCodec, &mut buf)
+                .unwrap()
+                .is_none()
+        );
+        assert!(buf.is_empty());
     }
 }
